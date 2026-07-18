@@ -25,6 +25,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { Location, Visit, Lead, VisitPurpose, InteractionOutcome } from '../types';
 import { api } from '../services/apiService';
+import { saveVisitOffline, syncOfflineDataToServer } from '../services/offlineSync';
 
 const VISIT_PURPOSES: { value: VisitPurpose; label: string }[] = [
   { value: 'COLD_CALL', label: 'FIRST TIME INTRODUCTORY MEETING' },
@@ -269,32 +270,46 @@ const AddVisit: React.FC = () => {
     };
 
     try {
-      await api.request('/visits', { method: 'POST', body: JSON.stringify(visitPayload) });
+      if (navigator.onLine) {
+        // 🌐 ONLINE: Push straight to database engine
+        await api.request('/visits', { method: 'POST', body: JSON.stringify(visitPayload) });
 
-      if (!formData.leadId && ['INTERESTED', 'DEMO_SCHEDULED', 'CALLBACK'].includes(formData.interactionOutcome)) {
-        const freshLeadPayload: Lead = {
-          id: `LEAD-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-          companyName: formData.companyName.toUpperCase().trim(),
-          contactPerson: formData.contactPerson.trim(),
-          phone: formData.phone,
-          status: formData.interactionOutcome === 'INTERESTED' ? 'INTERESTED' : 'PROSPECT',
-          estimatedValue: Number(formData.estimatedValue || 0),
-          assignedTo: user!.id,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await api.request('/leads', { method: 'POST', body: JSON.stringify(freshLeadPayload) });
-      } else if (formData.leadId) {
-        let derivedStatus = 'INTERESTED';
-        if (formData.interactionOutcome === 'NOT_INTERESTED') derivedStatus = 'COLD';
-        await api.request(`/leads/${formData.leadId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: derivedStatus, estimatedValue: Number(formData.estimatedValue || 0) })
-        });
+        if (!formData.leadId && ['INTERESTED', 'DEMO_SCHEDULED', 'CALLBACK'].includes(formData.interactionOutcome)) {
+          const freshLeadPayload: Lead = {
+            id: `LEAD-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+            companyName: formData.companyName.toUpperCase().trim(),
+            contactPerson: formData.contactPerson.trim(),
+            phone: formData.phone,
+            status: formData.interactionOutcome === 'INTERESTED' ? 'INTERESTED' : 'PROSPECT',
+            estimatedValue: Number(formData.estimatedValue || 0),
+            assignedTo: user!.id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          await api.request('/leads', { method: 'POST', body: JSON.stringify(freshLeadPayload) });
+        } else if (formData.leadId) {
+          let derivedStatus = 'INTERESTED';
+          if (formData.interactionOutcome === 'NOT_INTERESTED') derivedStatus = 'COLD';
+          await api.request(`/leads/${formData.leadId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: derivedStatus, estimatedValue: Number(formData.estimatedValue || 0) })
+          });
+        }
+
+        // Trigger background sync loop for older logs
+        syncOfflineDataToServer();
+      } else {
+        // 🚫 OFFLINE: Cache data seamlessly to device IndexedDB
+        await saveVisitOffline(visitPayload);
+        alert("⚠️ Device Offline: Your report is saved locally on your phone. It will automatically upload to the cloud layout the moment you regain cellular internet connection!");
       }
+
       navigate('/visits');
     } catch (err: any) {
-      alert("Error saving report: " + err.message);
+      console.warn("Connection failure detected during process execution. Caching to local database storage instead.");
+      await saveVisitOffline(visitPayload);
+      alert("Notice: Report securely stored locally due to active API communication limits.");
+      navigate('/visits');
     } finally {
       setIsLoading(false);
     }
@@ -475,7 +490,7 @@ const AddVisit: React.FC = () => {
           </div>
         )}
 
-        {/* STEP 3: MEETING MEETING METRIC OUTCOMES */}
+        {/* STEP 3: MEETING METRIC OUTCOMES */}
         {activeStep === 'MEETING_OUTCOME' && (
           <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-xl space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
