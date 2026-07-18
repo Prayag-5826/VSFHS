@@ -1,0 +1,8 @@
+{
+  "name": "Vidhya Security - Field Management",
+  "description": "Professional field management system for Vidhya Security Force & Housekeeping Services.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

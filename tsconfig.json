@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "types": [
+      "vite/client",
+      "node"
+    ],
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": [
+    "src",                // Covers everything inside a src folder
+    "components",         // Covers your components folder
+    "services",           // Covers your services/apiService.ts
+    "**/*.ts",            // Recursive search for all TS files
+    "**/*.tsx",           // Recursive search for all TSX files
+    "vite.config.ts",     // Explicitly include config
+    "vite-env.d.ts"       // Include your environment types
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
