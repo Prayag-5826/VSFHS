@@ -13,6 +13,7 @@ import AddUser from './pages/AddUser';
 import Settings from './pages/Settings';
 import ManageUsers from './pages/ManageUsers';
 import FollowUps from './pages/FollowUps';
+import { CreateQuotation } from './pages/CreateQuotation';
 import { syncOfflineDataToServer } from './services/offlineSync';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -51,6 +52,8 @@ const App: React.FC = () => {
           <Route path="/visit/:id" element={<ProtectedRoute><VisitDetails /></ProtectedRoute>} />
           <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          <Route path="/create-quotation" element={<ProtectedRoute><CreateQuotation /></ProtectedRoute>} />
+
 
           {/* Administrative Privilege Routing Control */}
           <Route path="/add-user" element={<ProtectedRoute><AddUser /></ProtectedRoute>} />

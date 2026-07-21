@@ -11,7 +11,8 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   Users,
-  PhoneCall // Imported for marketing follow-up queue representation
+  PhoneCall,
+  FileText // 👈 Imported for the Quotation Generator navigation link
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Role } from '../types';
@@ -50,12 +51,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     navigate('/login');
   };
 
-  // Re-engineered navigation schema to cleanly support the Lead Follow-Up Agenda
+  // Re-engineered navigation schema including Instant Proposal Generator
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
     { to: '/add-visit', icon: PlusCircle, label: 'Add Visit', roles: [Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
     { to: '/visits', icon: ClipboardList, label: 'Visit Logs', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
-    { to: '/follow-ups', icon: PhoneCall, label: 'Follow-Ups', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] }, // Integrated new anchor
+    { to: '/follow-ups', icon: PhoneCall, label: 'Follow-Ups', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
+    { to: '/create-quotation', icon: FileText, label: 'Quotation', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] }, // 👈 Integrated Quotation Generator!
     { to: '/add-user', icon: UserPlus, label: 'Register Staff', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE] },
     { to: '/manage-users', icon: Users, label: 'Staff Roster', roles: [Role.ADMIN] },
     { to: '/reports', icon: BarChart3, label: 'Reports', roles: [Role.ADMIN] },

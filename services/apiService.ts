@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Visit, User, Role, AppSettings, Attendance, Lead } from '../types';
 
-// Live Supabase Credentials provided by user
+// Live Supabase Credentials
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL!;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY!;
 
@@ -19,7 +19,7 @@ export const api = {
     const body = options.body ? JSON.parse(options.body as string) : null;
 
     try {
-      // --- AUTHENTICATION ENGINE ---
+      // --- 1. AUTHENTICATION ENGINE ---
       if (path === '/auth/login' && method === 'POST') {
         const username = body.username.trim();
 
@@ -42,9 +42,6 @@ export const api = {
           throw new Error(`Access Denied: Account status is ${user.status}`);
         }
 
-        // STRICTOR GATEWAY ENFORCEMENT: Block Admins from logging in via standard employee terminal paths
-        // The frontend AdminLogin will pass a designated header or parameter to skip this check
-        // STRICTOR GATEWAY ENFORCEMENT: Track the active browser hash string route directly
         const isMasterPortal = typeof window !== 'undefined' && window.location.hash.includes('vsfhs-master-portal');
 
         if (user.role === 'ADMIN' && !isMasterPortal) {
@@ -93,14 +90,22 @@ export const api = {
         };
       }
 
-      // --- ATTENDANCE ---
-      if (path === '/attendance') {
+      // --- 2. ATTENDANCE ENGINE ---
+      if (path === '/attendance' || path.startsWith('/attendance/')) {
+        const attendanceId = path.split('/')[2];
+
         if (method === 'GET') {
           const userId = url.searchParams.get('userId');
-          const date = url.searchParams.get('date');
+          let rawDate = url.searchParams.get('date');
+
+          // Scrub duplicate 'eq.' prefixes if passed by query parameters
+          if (rawDate && rawDate.startsWith('eq.')) {
+            rawDate = rawDate.replace(/^eq\./, '');
+          }
+
           let query = supabase.from('attendance').select('*');
           if (userId) query = query.eq('user_id', userId);
-          if (date) query = query.eq('date', date);
+          if (rawDate) query = query.eq('date', rawDate);
 
           const { data, error } = await query;
           if (error) throw new Error(`Attendance fetch failed: ${error.message}`);
@@ -109,10 +114,15 @@ export const api = {
             userId: a.user_id,
             userName: a.user_name,
             punchIn: a.punch_in,
+            punchOut: a.punch_out,
             date: a.date,
-            selfie: a.selfie
+            selfie: a.selfie,
+            status: a.status,
+            exceptionReason: a.exception_reason,
+            totalVisitsLogged: a.total_visits_logged
           }));
         }
+
         if (method === 'POST') {
           const { error } = await supabase.from('attendance').insert([{
             id: body.id,
@@ -120,14 +130,135 @@ export const api = {
             user_name: body.userName,
             punch_in: body.punchIn,
             date: body.date,
-            selfie: body.selfie
+            selfie: body.selfie,
+            status: body.status || 'COMPLETED',
+            exception_reason: body.exceptionReason
           }]);
           if (error) throw new Error(`Attendance recording failed: ${error.message}`);
           return { success: true };
         }
+
+        if (method === 'PATCH' && attendanceId) {
+          const updatePayload: any = {};
+          if (body.status) updatePayload.status = body.status;
+          if (body.exceptionReason) updatePayload.exception_reason = body.exceptionReason;
+
+          const { error } = await supabase.from('attendance').update(updatePayload).eq('id', attendanceId);
+          if (error) throw new Error(`Attendance audit update failed: ${error.message}`);
+          return { success: true };
+        }
       }
 
-      // --- PIPELINE ENGINE: LEADS ---
+      // --- 3. PROPOSALS & QUOTATIONS ENGINE (LINKED TO VISITS) ---
+      if (path === '/proposals' || path.startsWith('/proposals/')) {
+        const proposalId = path.split('/')[2];
+
+        if (method === 'GET') {
+          if (proposalId) {
+            const { data, error } = await supabase.from('proposals').select('*').eq('id', proposalId).single();
+            if (error) throw new Error(`Proposal ${proposalId} not found: ${error.message}`);
+            return {
+              id: data.id,
+              visitId: data.visit_id,
+              clientName: data.client_name,
+              clientAddress: data.client_address,
+              clientPhone: data.client_phone,
+              clientEmail: data.client_email,
+              notificationRef: data.notification_ref,
+              billingModel: data.billing_model || 'COMPLIANCE',
+              guardCount: data.guard_count,
+              supervisorCount: data.supervisor_count,
+              gunmanCount: data.gunman_count,
+              guardBasic: Number(data.guard_basic),
+              supervisorBasic: Number(data.supervisor_basic),
+              gunmanBasic: Number(data.gunman_basic),
+              serviceChargePercent: Number(data.service_charge_percent),
+              flatGuardRate: Number(data.flat_guard_rate || 15000),
+              flatSupervisorRate: Number(data.flat_supervisor_rate || 18000),
+              flatGunmanRate: Number(data.flat_gunman_rate || 22000),
+              requestedById: data.requested_by_id,
+              requestedByName: data.requested_by_name,
+              status: data.status,
+              createdAt: data.created_at
+            };
+          }
+
+          const { data, error } = await supabase.from('proposals').select('*').order('created_at', { ascending: false });
+          if (error) throw new Error(`Proposals fetch failed: ${error.message}`);
+          return (data || []).map((p: any) => ({
+            id: p.id,
+            visitId: p.visit_id,
+            clientName: p.client_name,
+            clientAddress: p.client_address,
+            clientPhone: p.client_phone,
+            clientEmail: p.client_email,
+            notificationRef: p.notification_ref,
+            billingModel: p.billing_model || 'COMPLIANCE',
+            guardCount: p.guard_count,
+            supervisorCount: p.supervisor_count,
+            gunmanCount: p.gunman_count,
+            guardBasic: Number(p.guard_basic),
+            supervisorBasic: Number(p.supervisor_basic),
+            gunmanBasic: Number(p.gunman_basic),
+            serviceChargePercent: Number(p.service_charge_percent),
+            flatGuardRate: Number(p.flat_guard_rate || 15000),
+            flatSupervisorRate: Number(p.flat_supervisor_rate || 18000),
+            flatGunmanRate: Number(p.flat_gunman_rate || 22000),
+            requestedById: p.requested_by_id,
+            requestedByName: p.requested_by_name,
+            status: p.status,
+            createdAt: p.created_at
+          }));
+        }
+
+        if (method === 'POST') {
+          const { data, error } = await supabase.from('proposals').insert([{
+            id: body.id,
+            visit_id: body.visitId,
+            client_name: body.clientName,
+            client_address: body.clientAddress,
+            client_phone: body.clientPhone,
+            client_email: body.clientEmail,
+            notification_ref: body.notificationRef || 'Notification No. 24862 Dated 01.10.2025',
+            billing_model: body.billingModel || 'COMPLIANCE',
+            guard_count: body.guardCount || 1,
+            supervisor_count: body.supervisorCount || 0,
+            gunman_count: body.gunmanCount || 0,
+            guard_basic: body.guardBasic || 12150.00,
+            supervisor_basic: body.supervisorBasic || 13146.00,
+            gunman_basic: body.gunmanBasic || 14869.00,
+            service_charge_percent: body.serviceChargePercent || 8.00,
+            flat_guard_rate: body.flatGuardRate || 15000,
+            flat_supervisor_rate: body.flatSupervisorRate || 18000,
+            flat_gunman_rate: body.flatGunmanRate || 22000,
+            requested_by_id: body.requestedById,
+            requested_by_name: body.requestedByName,
+            status: body.status || 'PENDING_APPROVAL'
+          }]).select();
+
+          if (error) throw new Error(`Proposal submission failed: ${error.message}`);
+          return data[0];
+        }
+
+        if (method === 'PATCH' && proposalId) {
+          const updatePayload: any = {};
+          if (body.status) updatePayload.status = body.status;
+          if (body.billingModel) updatePayload.billing_model = body.billingModel;
+          if (body.guardBasic !== undefined) updatePayload.guard_basic = body.guardBasic;
+          if (body.supervisorBasic !== undefined) updatePayload.supervisor_basic = body.supervisorBasic;
+          if (body.gunmanBasic !== undefined) updatePayload.gunman_basic = body.gunmanBasic;
+          if (body.serviceChargePercent !== undefined) updatePayload.service_charge_percent = body.serviceChargePercent;
+          if (body.flatGuardRate !== undefined) updatePayload.flat_guard_rate = body.flatGuardRate;
+          if (body.flatSupervisorRate !== undefined) updatePayload.flat_supervisor_rate = body.flatSupervisorRate;
+          if (body.flatGunmanRate !== undefined) updatePayload.flat_gunman_rate = body.flatGunmanRate;
+
+          const { error } = await supabase.from('proposals').update(updatePayload).eq('id', proposalId);
+          if (error) throw new Error(`Proposal update failed: ${error.message}`);
+          return { success: true };
+        }
+      }
+
+      // --- 4. PIPELINE ENGINE: LEADS ---
       if (path === '/leads' || path.startsWith('/leads/')) {
         if (method === 'GET') {
           const leadId = path.split('/')[2];
@@ -204,7 +335,7 @@ export const api = {
         }
       }
 
-      // --- VISITS (WITH FIELD MARKETING CONVERSIONS) ---
+      // --- 5. VISITS ---
       if (path === '/visits' || path.startsWith('/visits/')) {
         if (method === 'GET') {
           const visitId = path.split('/')[2];
@@ -282,7 +413,7 @@ export const api = {
         }
       }
 
-      // --- USERS ---
+      // --- 6. USERS ---
       if (path === '/users' || path.startsWith('/users/')) {
         if (method === 'GET') {
           const { data, error } = await supabase.from('users').select('*');
@@ -334,11 +465,9 @@ export const api = {
         if (method === 'DELETE') {
           const userId = path.split('/')[2];
           if (userId) {
-            // First scrub user dependencies from attendance due to foreign key constraints
             const { error: attendanceErr } = await supabase.from('attendance').delete().eq('user_id', userId);
             if (attendanceErr) throw new Error(`Failed to scrub user attendance records: ${attendanceErr.message}`);
 
-            // Proceed safely with the user deletion process
             const { error } = await supabase.from('users').delete().eq('id', userId);
             if (error) throw new Error(`Personnel deletion failed: ${error.message}`);
             return { success: true };
@@ -346,21 +475,44 @@ export const api = {
         }
       }
 
-      // --- SETTINGS ---
+      // --- 7. SETTINGS (INCLUDES LOGO & STAMP SEAL IMAGES) ---
       if (path === '/settings') {
         if (method === 'GET') {
           const { data, error } = await supabase.from('settings').select('*').eq('id', 1).single();
           if (error) return null;
-          return { companyName: data.company_name, logo: data.logo, contactNo: data.contact_no };
+          return {
+            companyName: data.company_name,
+            logo: data.logo,
+            contactNo: data.contact_no,
+            email: data.email,
+            address: data.address,
+            gstNumber: data.gst_number,
+            psaraLicense: data.psara_license,
+            directorName: data.director_name,
+            sealImage: data.seal_image
+          };
         }
         if (method === 'POST' || method === 'PUT') {
-          const { error } = await supabase.from('settings').upsert({ id: 1, company_name: body.companyName, logo: body.logo, contact_no: body.contactNo });
+          const payload = {
+            id: 1,
+            company_name: body.companyName,
+            logo: body.logo,
+            contact_no: body.contactNo,
+            email: body.email,
+            address: body.address,
+            gst_number: body.gstNumber,
+            psara_license: body.psaraLicense,
+            director_name: body.directorName,
+            seal_image: body.sealImage || body.seal_image
+          };
+
+          const { error } = await supabase.from('settings').upsert(payload);
           if (error) throw new Error(`Configuration update failed: ${error.message}`);
           return body;
         }
       }
 
-      // --- GLOBAL STATS ENGINE ---
+      // --- 8. GLOBAL STATS ENGINE ---
       if (path === '/stats' && method === 'GET') {
         const { count: visitCount, error: vErr } = await supabase.from('visits').select('*', { count: 'exact', head: true });
         const { count: userCount, error: uErr } = await supabase.from('users').select('*', { count: 'exact', head: true });

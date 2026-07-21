@@ -5,6 +5,8 @@ export enum Role {
 }
 
 export type UserStatus = 'ACTIVE' | 'BLOCKED' | 'SUSPENDED' | 'PENDING_APPROVAL';
+export type ProposalStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+export type BillingModel = 'COMPLIANCE' | 'FLAT'; // 👈 Make sure 'export' is present before type!
 
 export interface User {
   id: string; // VSFHS-XXXXXX
@@ -23,6 +25,31 @@ export interface User {
   createdBy?: string; // ID of the user who created this account
 }
 
+export interface ProposalRequest {
+  id: string;
+  clientName: string;
+  clientAddress: string;
+  notificationRef: string;
+  guardCount: number;
+  supervisorCount: number;
+  gunmanCount: number;
+  guardBasic: number;
+  supervisorBasic: number;
+  gunmanBasic: number;
+  serviceChargePercent: number;
+  requestedById: string;
+  requestedByName: string;
+  status: ProposalStatus;
+  createdAt: string;
+
+  // 👈 Add these properties for Flat vs Compliance models:
+  billingModel?: BillingModel;
+  flatGuardRate?: number;
+  flatSupervisorRate?: number;
+  flatGunmanRate?: number;
+
+}
+
 export interface Attendance {
   id: string;
   userId: string;
@@ -32,11 +59,18 @@ export interface Attendance {
   selfie: string;
 }
 
+// 🔀 UPGRADED: Includes statutory, legal, and branding attributes
 export interface AppSettings {
   companyName: string;
   logo: string; // base64
   contactNo: string;
   adminPassword?: string;
+  email?: string;
+  address?: string;
+  gstNumber?: string;
+  psaraLicense?: string;
+  directorName?: string;
+  sealImage?: string;
 }
 
 export interface Location {
@@ -46,14 +80,14 @@ export interface Location {
 }
 
 // =========================================================================
-// NEW MARKETING & PIPELINE TYPES
+// MARKETING & PIPELINE TYPES
 // =========================================================================
 
 export type LeadStatus = 'PROSPECT' | 'INTERESTED' | 'QUOTATION_SENT' | 'CONVERTED' | 'COLD';
 export type VisitPurpose = 'COLD_CALL' | 'FOLLOW_UP' | 'CLOSING';
 export type InteractionOutcome = 'INTERESTED' | 'NOT_INTERESTED' | 'DEMO_SCHEDULED' | 'CALLBACK' | 'DISCUSSED';
 
-// NEW INTERFACE: Tracks long-term business opportunities & pipeline metrics
+// Tracks long-term business opportunities & pipeline metrics
 export interface Lead {
   id: string; // VSFHS-LEAD-XXXXXX
   companyName: string;
@@ -68,7 +102,7 @@ export interface Lead {
   updatedAt: string;
 }
 
-// UPGRADED INTERFACE: Extended with structured fields for marketing conversion
+// Extended with structured fields for marketing conversion
 export interface Visit {
   id: string;
   representativeId: string;
@@ -83,7 +117,7 @@ export interface Visit {
   repPhoto: string;
   notes?: string;
 
-  // New Marketing Core Extensions
+  // Marketing Core Extensions
   leadId?: string;                 // Connects this visit to a target lead pipeline
   visitPurpose: VisitPurpose;      // Why was the meeting conducted
   interactionOutcome: InteractionOutcome; // Actionable marketing results
