@@ -3,26 +3,33 @@
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-        <!-- Customize your theme here. -->
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
+        <item name="colorPrimary">#070913</item>
+        <item name="colorPrimaryDark">#070913</item>
+        <item name="colorAccent">#3B82F6</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
-        <item name="android:background">@drawable/splash</item>
+        <item name="android:background">#F8FAFC</item>
     </style>
 
-    <!-- 🖼️ Instant 0.0s Launch Theme using assets/splash.png -->
+    <!-- 🎨 CLEAN CENTERED LOGO SPLASH (Removes dark blue circle on Android 12+) -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
-        <item name="windowSplashScreenBackground">#f8fafc</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/splash</item>
-        <item name="android:windowSplashScreenBackground">#f8fafc</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash</item>
-        <item name="android:statusBarColor">#f8fafc</item>
+        <!-- Main window background -->
+        <item name="windowSplashScreenBackground">#F8FAFC</item>
+        <item name="android:windowSplashScreenBackground">#F8FAFC</item>
+
+        <!-- Center Logo Icon Container Background (Forces off-white instead of dark circle) -->
+        <item name="windowSplashScreenIconBackgroundColor">#F8FAFC</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#F8FAFC</item>
+
+        <!-- Center Logo Icon -->
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+
+        <!-- Status Bar Controls -->
+        <item name="android:statusBarColor">#F8FAFC</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 

@@ -25,12 +25,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const App: React.FC = () => {
   useEffect(() => {
-    // 🎨 Hide Native Android Splash Screen smoothly after 2 seconds once React mounts
+    // ⏱️ Hold centered logo native splash screen for 2 seconds on app launch
     const splashTimer = setTimeout(async () => {
       try {
         await SplashScreen.hide();
       } catch (e) {
-        // Fallback for desktop browser environment where Capacitor plugin is inactive
+        // Fallback for browser execution where Capacitor plugin is inactive
       }
     }, 2000);
 
