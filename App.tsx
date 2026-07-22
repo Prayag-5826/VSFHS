@@ -25,43 +25,51 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
+  const [fadeOut, setFadeOut] = useState(false);
 
   useEffect(() => {
-    // 1. Instantly hide native Android OS splash screen container
+    // 1. Immediately hide Android OS native splash
     SplashScreen.hide().catch(() => {});
 
-    // 2. Keep the full-screen poster overlay visible for 2 seconds
+    // 2. Start smooth fade-out after 1.7 seconds
+    const fadeTimer = setTimeout(() => {
+      setFadeOut(true);
+    }, 1700);
+
+    // 3. Unmount splash completely at 2.0 seconds
     const splashTimer = setTimeout(() => {
       setShowSplash(false);
     }, 2000);
 
-    // 🌟 OFFLINE SYNC MATRIX: Listens globally for phone network updates
+    // 🌟 OFFLINE SYNC MATRIX
     syncOfflineDataToServer();
-
     window.addEventListener('online', syncOfflineDataToServer);
 
     return () => {
+      clearTimeout(fadeTimer);
       clearTimeout(splashTimer);
       window.removeEventListener('online', syncOfflineDataToServer);
     };
   }, []);
 
-  // 🖼️ Renders full poster image cleanly with zero circular cropping or blur
-  if (showSplash) {
-    return (
-      <div className="fixed inset-0 bg-[#f8fafc] flex items-center justify-center z-50 p-6 select-none">
-        <img
-          src="/splash.png"
-          alt="Vidhya Security Force & Housekeeping Services"
-          className="w-full h-full object-contain max-w-sm"
-        />
-      </div>
-    );
-  }
-
   return (
     <AuthProvider>
       <Router>
+        {/* Smooth Fade Overlay */}
+        {showSplash && (
+          <div
+            className={`fixed inset-0 bg-[#f8fafc] flex items-center justify-center z-[9999] p-6 select-none transition-opacity duration-300 ${
+              fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}
+          >
+            <img
+              src="/splash.png"
+              alt="Vidhya Security Force & Housekeeping Services"
+              className="w-full h-full object-contain max-w-sm"
+            />
+          </div>
+        )}
+
         <Routes>
           {/* Public Access Portals */}
           <Route path="/login" element={<Login />} />

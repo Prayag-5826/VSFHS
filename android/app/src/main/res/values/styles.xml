@@ -14,17 +14,12 @@
         <item name="android:background">#F8FAFC</item>
     </style>
 
-    <!-- 🎨 CRISP SPLASH WITH LOGO + TEXT -->
+    <!-- 🌟 DISABLES ANDROID OS SPLASH ICON (Fixes double splash & black circle) -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <!-- Main window background using our layered drawable -->
         <item name="windowSplashScreenBackground">#F8FAFC</item>
         <item name="android:windowSplashScreenBackground">#F8FAFC</item>
-
-        <!-- Center Icon pointing to full splash image -->
-        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_background</item>
-
-        <!-- Status Bar -->
+        <item name="windowSplashScreenAnimatedIcon">@null</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@null</item>
         <item name="android:statusBarColor">#F8FAFC</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
