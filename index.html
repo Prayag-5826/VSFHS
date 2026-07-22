@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Vidhya Security Force - Field Management System</title>
 
+  <!-- ☀️ Force light color scheme to prevent Android dark mode auto-inversion -->
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+
   <!-- PWA Theme Color -->
   <meta name="theme-color" content="#4f46e5">
 
@@ -25,6 +29,32 @@
       font-family: 'Inter', sans-serif;
       background-color: #f8fafc;
       -webkit-tap-highlight-color: transparent;
+    }
+
+    /* 🎨 Native Inputs & Datepicker Contrast Fix */
+    select option {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+    }
+
+    input[type="date"],
+    input[type="datetime-local"],
+    input[type="time"] {
+      color-scheme: light !important;
+      color: #0f172a !important;
+      background-color: #ffffff !important;
+    }
+
+    ::-webkit-calendar-picker-indicator {
+      filter: invert(0) !important;
+    }
+
+    ::-webkit-datetime-edit-fields-wrapper,
+    ::-webkit-datetime-edit-text,
+    ::-webkit-datetime-edit-month-field,
+    ::-webkit-datetime-edit-day-field,
+    ::-webkit-datetime-edit-year-field {
+      color: #0f172a !important;
     }
   </style>
 

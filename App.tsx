@@ -16,6 +16,7 @@ import ManageUsers from './pages/ManageUsers';
 import FollowUps from './pages/FollowUps';
 import { CreateQuotation } from './pages/CreateQuotation';
 import { syncOfflineDataToServer } from './services/offlineSync';
+import { requestAppPermissions } from './services/permissions';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -28,15 +29,18 @@ const App: React.FC = () => {
   const [fadeOut, setFadeOut] = useState(false);
 
   useEffect(() => {
-    // 1. Immediately hide Android OS native splash
+    // 1. Instantly hide Android OS native splash
     SplashScreen.hide().catch(() => {});
 
-    // 2. Start smooth fade-out after 1.7 seconds
+    // 2. 🛡️ Request Native Android Permissions (Camera, GPS, Notifications)
+    requestAppPermissions();
+
+    // 3. Start smooth fade-out after 1.7 seconds
     const fadeTimer = setTimeout(() => {
       setFadeOut(true);
     }, 1700);
 
-    // 3. Unmount splash completely at 2.0 seconds
+    // 4. Unmount splash completely at 2.0 seconds
     const splashTimer = setTimeout(() => {
       setShowSplash(false);
     }, 2000);
