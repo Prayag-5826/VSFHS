@@ -10,7 +10,9 @@ import {
   Building2,
   ArrowUpRight,
   Sparkles,
-  Plus
+  Plus,
+  FileSpreadsheet,
+  ChevronRight
 } from 'lucide-react';
 import { Visit, Lead } from '../types';
 import { AttendanceWidget } from '../components/AttendanceWidget';
@@ -35,7 +37,7 @@ const StatsCard: React.FC<{
   color: string;
   iconBg: string;
 }> = ({ title, value, icon: Icon, trend, color, iconBg }) => (
-  <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-start justify-between relative overflow-hidden transition-all hover:shadow-md">
+  <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex items-start justify-between relative overflow-hidden transition-all duration-300 hover:shadow-xl group">
     <div className="space-y-1">
       <p className="text-[10px] font-black text-slate-400 mb-1 uppercase tracking-widest leading-none">{title}</p>
       <h3 className="text-3xl font-mono font-black text-slate-900 tracking-tight">{value}</h3>
@@ -45,7 +47,7 @@ const StatsCard: React.FC<{
         </p>
       )}
     </div>
-    <div className={`p-4 rounded-2xl ${iconBg} ${color} shadow-lg shrink-0`}>
+    <div className={`p-4 rounded-2xl ${iconBg} ${color} shadow-sm group-hover:scale-110 transition-transform duration-300 shrink-0`}>
       <Icon size={20} />
     </div>
   </div>
@@ -72,7 +74,7 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
   };
 
   return (
-    <div className="w-full space-y-8 px-2 animate-in fade-in duration-300">
+    <div className="w-full space-y-8 px-2 pb-12 animate-in fade-in duration-300">
 
       {/* Dynamic Command Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/60 pb-6">
@@ -89,13 +91,23 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => navigate('/add-visit')}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[10px] uppercase tracking-widest px-5 py-3.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center space-x-2 w-full sm:w-auto"
-        >
-          <Plus size={14} />
-          <span>Log New Visit</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <button
+            onClick={() => navigate('/create-quotation')}
+            className="bg-white hover:bg-slate-50 text-indigo-600 border border-indigo-200 font-black text-[10px] uppercase tracking-widest px-4 py-3.5 rounded-2xl transition-all shadow-sm active:scale-95 flex items-center justify-center space-x-2 w-full sm:w-auto"
+          >
+            <FileSpreadsheet size={14} />
+            <span>Request Proposal</span>
+          </button>
+
+          <button
+            onClick={() => navigate('/add-visit')}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] uppercase tracking-widest px-5 py-3.5 rounded-2xl transition-all shadow-md active:scale-95 flex items-center justify-center space-x-2 w-full sm:w-auto"
+          >
+            <Plus size={14} />
+            <span>Log New Visit</span>
+          </button>
+        </div>
       </div>
 
       {/* 🌟 EMBEDDED ATTENDANCE WORKFLOW SYSTEM WIDGET */}
@@ -145,8 +157,8 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
         {/* Left Double Card: Today's Path Trail */}
-        <div className="lg:col-span-2 bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between border-b pb-4">
+        <div className="lg:col-span-2 bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div>
               <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Today's Marketing Path</h3>
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Locations recorded during your active shift</p>
@@ -171,10 +183,10 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
                 <div
                   key={visit.id}
                   onClick={() => navigate(`/visit/${visit.id}`)}
-                  className="py-3.5 flex items-center justify-between gap-4 group cursor-pointer transition-all"
+                  className="py-3.5 flex items-center justify-between gap-4 group cursor-pointer transition-all hover:bg-slate-50/60 px-3 rounded-2xl"
                 >
                   <div className="flex items-center space-x-3.5 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-slate-950 text-white flex items-center justify-center shrink-0 shadow-sm">
+                    <div className="w-10 h-10 rounded-2xl bg-slate-950 text-white flex items-center justify-center shrink-0 shadow-sm">
                       <Building2 size={16} />
                     </div>
                     <div className="min-w-0">
@@ -187,7 +199,7 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
                       </p>
                     </div>
                   </div>
-                  <ArrowUpRight size={14} className="text-slate-300 group-hover:text-indigo-600 transition-all shrink-0 ml-2" />
+                  <ChevronRight size={16} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all shrink-0 ml-2" />
                 </div>
               ))}
             </div>
@@ -195,7 +207,7 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
         </div>
 
         {/* Right Single Card: Pending Actions Follow Ups Box */}
-        <div className="bg-slate-950 text-white p-6 rounded-[2.5rem] shadow-xl border border-slate-900 flex flex-col justify-between space-y-6">
+        <div className="bg-slate-950 text-white p-6 md:p-8 rounded-[2.5rem] shadow-xl border border-slate-900 flex flex-col justify-between space-y-6">
           <div className="space-y-4">
             <div className="flex items-center space-x-2 text-indigo-400 border-b border-slate-800/80 pb-3">
               <PhoneCall size={16} />
@@ -204,17 +216,17 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
 
             <div className="space-y-3">
               {upcomingFollowUps.length === 0 ? (
-                <p className="text-slate-400 text-[10px] font-bold uppercase py-4 text-center tracking-wide">
+                <p className="text-slate-400 text-[10px] font-bold uppercase py-6 text-center tracking-wide">
                   No follow-ups scheduled at this moment.
                 </p>
               ) : (
                 upcomingFollowUps.map(item => (
-                  <div key={item.id} className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl flex justify-between items-center gap-3">
+                  <div key={item.id} className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-2xl flex justify-between items-center gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-black text-white truncate uppercase">{item.companyName}</p>
                       <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 truncate">{item.interactionOutcome}</p>
                     </div>
-                    <span className="text-[9px] font-mono font-black bg-indigo-600/30 px-2.5 py-1 rounded text-indigo-300 shrink-0">
+                    <span className="text-[9px] font-mono font-black bg-indigo-600/30 px-2.5 py-1 rounded-lg text-indigo-300 shrink-0">
                       {item.nextFollowUp}
                     </span>
                   </div>
@@ -225,7 +237,7 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
 
           <div className="pt-3 border-t border-slate-900 text-[9px] font-bold text-slate-500 uppercase tracking-widest flex items-center justify-between">
             <span>Security Operational Node</span>
-            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
           </div>
         </div>
 
@@ -234,3 +246,5 @@ export const FieldDashboard: React.FC<FieldDashboardProps> = ({
     </div>
   );
 };
+
+export default FieldDashboard;

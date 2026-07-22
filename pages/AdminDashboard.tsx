@@ -11,7 +11,12 @@ import {
   ExternalLink,
   ShieldCheck,
   ArrowUpRight,
-  UserCheck
+  UserCheck,
+  FileSpreadsheet,
+  Zap,
+  TrendingUp,
+  Clock,
+  ChevronRight
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Visit, Lead } from '../types';
@@ -30,15 +35,27 @@ const MetricBox: React.FC<{
   description: string;
   icon: React.ElementType;
   color: string;
-  bg: string
-}> = ({ title, value, description, icon: Icon, color, bg }) => (
-  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between transition-all hover:shadow-md">
-    <div className="space-y-1">
-      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">{title}</span>
-      <h3 className="text-3xl font-mono font-black text-slate-900 tracking-tight">{value}</h3>
-      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">{description}</p>
+  bg: string;
+  badgeText?: string;
+}> = ({ title, value, description, icon: Icon, color, bg, badgeText }) => (
+  <div className="relative bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all duration-300 group overflow-hidden">
+    <div className="flex items-center justify-between mb-3">
+      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</span>
+      <div className={`p-3 rounded-2xl ${bg} ${color} shadow-sm group-hover:scale-110 transition-transform duration-300 shrink-0`}>
+        <Icon size={20} />
+      </div>
     </div>
-    <div className={`p-4 rounded-2xl ${bg} ${color} shadow-sm shrink-0`}><Icon size={22} /></div>
+    <div className="space-y-1">
+      <h3 className="text-3xl font-mono font-black text-slate-900 tracking-tight">{value}</h3>
+      <div className="flex items-center justify-between pt-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{description}</p>
+        {badgeText && (
+          <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
+            {badgeText}
+          </span>
+        )}
+      </div>
+    </div>
   </div>
 );
 
@@ -67,9 +84,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const activeStaffArray = Object.values(staffPerformanceMap);
 
   return (
-    <div className="w-full space-y-8 px-2 animate-in fade-in duration-300">
+    <div className="w-full space-y-8 px-2 pb-12 animate-in fade-in duration-300">
 
-      {/* Dynamic Header Block */}
+      {/* Dynamic Command Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-slate-200/60 pb-6">
         <div>
           <div className="flex items-center space-x-2 text-indigo-600 mb-1">
@@ -82,34 +99,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="bg-slate-100 p-1 rounded-xl border flex space-x-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="bg-slate-100 p-1 rounded-2xl border border-slate-200/80 flex space-x-1">
             <button
               onClick={() => setActiveTab('OVERVIEW')}
-              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === 'OVERVIEW' ? 'bg-white text-slate-900 shadow-sm border' : 'text-slate-500 hover:text-slate-900'}`}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === 'OVERVIEW' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
             >
               Analytics Matrix
             </button>
             <button
               onClick={() => setActiveTab('ROSTER')}
-              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === 'ROSTER' ? 'bg-white text-slate-900 shadow-sm border' : 'text-slate-500 hover:text-slate-900'}`}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === 'ROSTER' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
             >
               Team Deployment ({activeStaffArray.length})
             </button>
           </div>
 
           <button
-            onClick={() => navigate('/add-user')}
-            className="bg-slate-950 hover:bg-black text-white font-black text-[10px] uppercase tracking-widest px-5 py-3 rounded-xl transition-all shadow-md active:scale-95"
+            onClick={() => navigate('/create-quotation')}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center space-x-1.5"
           >
-            Add New Officer
+            <FileSpreadsheet size={14} />
+            <span>Proposal Desk</span>
+          </button>
+
+          <button
+            onClick={() => navigate('/add-user')}
+            className="bg-slate-950 hover:bg-black text-white font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center space-x-1.5"
+          >
+            <UserCheck size={14} />
+            <span>Add Officer</span>
           </button>
         </div>
       </div>
 
-      {/* Grid KPI Boxes */}
+      {/* Grid KPI Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricBox title="Global Brand Pitches" value={stats.visits} description="Total historical drops" icon={Layers} color="text-indigo-600" bg="bg-indigo-50" />
+        <MetricBox title="Global Brand Pitches" value={stats.visits} description="Total historical drops" icon={Layers} color="text-indigo-600" bg="bg-indigo-50" badgeText="LIVE" />
         <MetricBox title="Pipeline Contracts" value={stats.leads} description="Active business leads" icon={Briefcase} color="text-slate-900" bg="bg-slate-100" />
         <MetricBox title="Secured Asset Value" value={`₹${totalPipelineValue.toLocaleString('en-IN')}`} description="Estimated revenue capacity" icon={IndianRupee} color="text-amber-600" bg="bg-amber-50" />
         <MetricBox title="Active Field Forces" value={stats.users} description="Registered agency staff" icon={Users} color="text-emerald-600" bg="bg-emerald-50" />
@@ -120,13 +146,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div className="lg:col-span-2 space-y-6">
             {/* Recharts Performance Visualizations */}
-            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
+            <div className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h2 className="text-xs font-black text-slate-900 uppercase tracking-widest">Weekly Performance Aggregate</h2>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Combined field metrics chart logs</p>
                 </div>
-                <div className="flex items-center space-x-1.5 text-[9px] font-black text-slate-400 bg-slate-50 px-3 py-1.5 rounded-xl border tracking-widest">
+                <div className="flex items-center space-x-1.5 text-[9px] font-black text-slate-400 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 tracking-widest">
                   <Activity size={12} className="text-indigo-600 animate-pulse" />
                   <span>LIVE TRACKER</span>
                 </div>
@@ -141,7 +167,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }} />
                     <Bar dataKey="pitches" radius={[6, 6, 0, 0]}>
                       {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.pitches > 0 ? '#6366f1' : '#e2e8f0'} />
+                        <Cell key={`cell-${index}`} fill={entry.pitches > 0 ? '#4f46e5' : '#cbd5e1'} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -150,8 +176,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             {/* Comprehensive Logs Roster */}
-            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b pb-4">
+            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div>
                   <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Latest System Actions</h3>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Real-time incoming drop logs</p>
@@ -170,9 +196,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               ) : (
                 <div className="divide-y divide-slate-100">
                   {visits.slice(0, 5).map((visit) => (
-                    <div key={visit.id} className="py-3.5 flex items-center justify-between gap-4">
+                    <div key={visit.id} className="py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/50 px-2 rounded-xl transition-all">
                       <div className="flex items-center space-x-3.5 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-slate-950 text-white flex items-center justify-center shrink-0 shadow-sm">
+                        <div className="w-10 h-10 rounded-2xl bg-slate-950 text-white flex items-center justify-center shrink-0 shadow-sm">
                           <Building2 size={16} />
                         </div>
                         <div className="min-w-0">
@@ -184,7 +210,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
 
                       <div className="text-right shrink-0">
-                        <span className="text-[10px] font-mono font-black text-slate-900 bg-slate-100 px-2 py-1 rounded-md block">
+                        <span className="text-[10px] font-mono font-black text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg block">
                           {visit.interactionOutcome}
                         </span>
                         <span className="text-[8px] font-bold text-slate-400 block mt-1 uppercase tracking-wider">
@@ -198,21 +224,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          {/* Right Sidebar Alerts Panel */}
+          {/* Right Sidebar Operations & High Value Leads Panel */}
           <div className="space-y-6">
+
+            {/* Quick Actions Card */}
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-950 text-white p-6 rounded-[2.5rem] shadow-xl border border-indigo-900/40 space-y-4">
+              <div className="flex items-center space-x-2 text-indigo-300 border-b border-indigo-800/60 pb-3">
+                <Zap size={16} className="text-amber-400" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-indigo-200">Executive Shortcuts</h3>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={() => navigate('/create-quotation')}
+                  className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-left transition-all flex items-center justify-between border border-white/10 group"
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <FileSpreadsheet size={16} className="text-amber-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Quotation & Proposal Desk</span>
+                  </div>
+                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button
+                  onClick={() => navigate('/visit-logs')}
+                  className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-left transition-all flex items-center justify-between border border-white/10 group"
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <Layers size={16} className="text-indigo-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Field Visit Logs</span>
+                  </div>
+                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button
+                  onClick={() => navigate('/reports')}
+                  className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-left transition-all flex items-center justify-between border border-white/10 group"
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <ShieldAlert size={16} className="text-emerald-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Audit & Attendance Desk</span>
+                  </div>
+                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            </div>
+
+            {/* Operations Control */}
             <div className="bg-slate-950 text-white p-6 rounded-[2.5rem] shadow-xl border border-slate-900 space-y-4">
               <div className="flex items-center space-x-2 text-amber-400 border-b border-slate-800 pb-3">
                 <ShieldAlert size={16} />
                 <h3 className="text-xs font-black uppercase tracking-widest text-amber-400">Operations Control</h3>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-2">
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-2">
                 <span className="text-[9px] font-black uppercase text-indigo-400 tracking-widest bg-indigo-950 px-2 py-0.5 rounded">Attendance Watch</span>
                 <p className="text-[11px] font-bold text-slate-300 leading-relaxed">
                   Review and verify remote location attendance bypass logs using the dedicated checking terminal.
                 </p>
                 <button
                   onClick={() => navigate('/reports')}
-                  className="w-full mt-2 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9px] uppercase tracking-widest rounded-lg transition-all text-center flex items-center justify-center space-x-1"
+                  className="w-full mt-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9px] uppercase tracking-widest rounded-xl transition-all text-center flex items-center justify-center space-x-1"
                 >
                   <span>Open Audit Terminal</span>
                   <ExternalLink size={10} />
@@ -220,14 +288,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
+            {/* High Value Leads Sidebar */}
             <div className="bg-white border border-slate-100 p-6 rounded-[2.5rem] shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b pb-2">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">High Value Leads</h3>
-                <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded">PROSPECTS</span>
+                <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">PROSPECTS</span>
               </div>
               <div className="space-y-3">
                 {leads.filter(l => (l.estimatedValue || 0) > 20000).slice(0, 3).map(lead => (
-                  <div key={lead.id} className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl space-y-1">
+                  <div key={lead.id} className="p-3.5 bg-slate-50 border border-slate-200/60 rounded-2xl space-y-1">
                     <div className="flex justify-between items-center">
                       <h4 className="text-xs font-black text-slate-900 uppercase truncate max-w-[130px]">{lead.companyName}</h4>
                       <span className="text-[10px] font-mono font-black text-emerald-600">
@@ -239,12 +308,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ))}
               </div>
             </div>
+
           </div>
 
         </div>
       ) : (
         /* TAB MODULE B: DENSE TEAM ROSTER METRICS */
-        <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-xl space-y-4">
+        <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
           <div>
             <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Active Representatives Tracker</h3>
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Calculated tracking logs for today's field actions</p>
@@ -271,7 +341,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <td className="py-4 px-4 font-black text-slate-900 uppercase">{staff.name}</td>
                       <td className="py-4 px-4 font-mono text-indigo-600 font-black text-sm">{staff.totalToday} / 7 Drops</td>
                       <td className="py-4 px-4">
-                        <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div className="w-28 bg-slate-100 h-2.5 rounded-full overflow-hidden">
                           <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min((staff.totalToday / 7) * 100, 100)}%` }} />
                         </div>
                       </td>
@@ -288,3 +358,5 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   );
 };
+
+export default AdminDashboard;
