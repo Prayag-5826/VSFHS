@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { SplashScreen } from '@capacitor/splash-screen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import Login from './pages/Login';
@@ -23,54 +24,27 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const App: React.FC = () => {
-  // 🎨 Detect if the app is launched as a standalone APK / PWA
-  const isStandaloneApp = () => {
-    return (
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true ||
-      document.referrer.includes('android-app://')
-    );
-  };
-
-  // Only enable splash screen if opened inside the APK / installed app
-  const [showSplash, setShowSplash] = useState(() => isStandaloneApp());
-
   useEffect(() => {
-    // Hide splash screen after 2 seconds if running inside APK
-    if (showSplash) {
-      const splashTimer = setTimeout(() => {
-        setShowSplash(false);
-      }, 2000);
+    // 🎨 Hide Native Android Splash Screen smoothly after 2 seconds once React mounts
+    const splashTimer = setTimeout(async () => {
+      try {
+        await SplashScreen.hide();
+      } catch (e) {
+        // Fallback for desktop browser environment where Capacitor plugin is inactive
+      }
+    }, 2000);
 
-      return () => clearTimeout(splashTimer);
-    }
-  }, [showSplash]);
-
-  useEffect(() => {
     // 🌟 OFFLINE SYNC MATRIX: Listens globally for phone network updates
     syncOfflineDataToServer();
 
     window.addEventListener('online', syncOfflineDataToServer);
 
     return () => {
+      clearTimeout(splashTimer);
       window.removeEventListener('online', syncOfflineDataToServer);
     };
   }, []);
 
-  // 1. Display Splash Screen overlay ONLY on Standalone APK / Mobile App
-  if (showSplash) {
-    return (
-      <div className="fixed inset-0 bg-[#f8fafc] flex items-center justify-center z-50 p-4 select-none">
-        <img
-          src="/splash.png"
-          alt="Vidhya Security Force"
-          className="w-full h-full object-contain max-w-sm animate-fade-in"
-        />
-      </div>
-    );
-  }
-
-  // 2. Render Main Application Router directly for Desktop Website Users
   return (
     <AuthProvider>
       <Router>

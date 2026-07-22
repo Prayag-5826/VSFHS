@@ -1,8 +1,19 @@
 {
   "appId": "com.vsfhs.security",
-  "appName": "Vidhya Security Force Field Track",
+  "appName": "Vidhya Security Force",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": false,
+      "backgroundColor": "#F8FAFC",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    }
   }
 }
