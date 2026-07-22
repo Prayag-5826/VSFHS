@@ -1,5 +1,8 @@
 {
   "appId": "com.vsfhs.security",
-  "appName": "Vidhya Security Force",
-  "webDir": "dist"
+  "appName": "Vidhya Security Force Field Track",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
 }

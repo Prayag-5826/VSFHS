@@ -6,9 +6,13 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      base: './', // 👈 CRITICAL FIX: Relative asset loading prevents white screen in Android APK
       server: {
         port: 3000,
         host: '0.0.0.0',
+      },
+      build: {
+        outDir: 'dist',
       },
       plugins: [
         react(),
