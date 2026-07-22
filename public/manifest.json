@@ -1,6 +1,14 @@
 {
   "short_name": "VSFHS",
   "name": "Vidhya Security Force & Housekeeping Services",
+  "description": "Official Field Tracking & Operations Management System for Vidhya Security Force",
+  "start_url": "/",
+  "background_color": "#090d16",
+  "theme_color": "#4f46e5",
+  "display": "standalone",
+  "display_override": ["standalone", "browser"],
+  "orientation": "portrait",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "/pwa-192x192.png",
@@ -13,10 +21,5 @@
       "sizes": "512x512",
       "purpose": "any maskable"
     }
-  ],
-  "start_url": "/",
-  "background_color": "#f8fafc",
-  "theme_color": "#4f46e5",
-  "display": "standalone",
-  "orientation": "portrait"
+  ]
 }
