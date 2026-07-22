@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
@@ -23,13 +23,33 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const App: React.FC = () => {
+  // 🎨 Detect if the app is launched as a standalone APK / PWA
+  const isStandaloneApp = () => {
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true ||
+      document.referrer.includes('android-app://')
+    );
+  };
 
-  // 🌟 OFFLINE SYNC MATRIX: Listens globally for phone network updates
+  // Only enable splash screen if opened inside the APK / installed app
+  const [showSplash, setShowSplash] = useState(() => isStandaloneApp());
+
   useEffect(() => {
-    // 1. Immediately scan device IndexedDB for pending items on app load
+    // Hide splash screen after 2 seconds if running inside APK
+    if (showSplash) {
+      const splashTimer = setTimeout(() => {
+        setShowSplash(false);
+      }, 2000);
+
+      return () => clearTimeout(splashTimer);
+    }
+  }, [showSplash]);
+
+  useEffect(() => {
+    // 🌟 OFFLINE SYNC MATRIX: Listens globally for phone network updates
     syncOfflineDataToServer();
 
-    // 2. Register dynamic event listeners to capture connection recoveries instantly
     window.addEventListener('online', syncOfflineDataToServer);
 
     return () => {
@@ -37,6 +57,20 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // 1. Display Splash Screen overlay ONLY on Standalone APK / Mobile App
+  if (showSplash) {
+    return (
+      <div className="fixed inset-0 bg-[#f8fafc] flex items-center justify-center z-50 p-4 select-none">
+        <img
+          src="/splash.png"
+          alt="Vidhya Security Force"
+          className="w-full h-full object-contain max-w-sm animate-fade-in"
+        />
+      </div>
+    );
+  }
+
+  // 2. Render Main Application Router directly for Desktop Website Users
   return (
     <AuthProvider>
       <Router>
@@ -53,7 +87,6 @@ const App: React.FC = () => {
           <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/create-quotation" element={<ProtectedRoute><CreateQuotation /></ProtectedRoute>} />
-
 
           {/* Administrative Privilege Routing Control */}
           <Route path="/add-user" element={<ProtectedRoute><AddUser /></ProtectedRoute>} />

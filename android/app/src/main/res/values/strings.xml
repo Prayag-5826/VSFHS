@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vidhya Security Force</string>
+    <string name="title_activity_main">Vidhya Security Force</string>
+    <string name="package_name">com.vsfhs.security</string>
+    <string name="custom_url_scheme">com.vsfhs.security</string>
+</resources>
