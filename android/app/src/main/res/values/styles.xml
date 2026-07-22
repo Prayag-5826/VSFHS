@@ -14,21 +14,17 @@
         <item name="android:background">#F8FAFC</item>
     </style>
 
-    <!-- 🎨 CLEAN CENTERED LOGO SPLASH (Removes dark blue circle on Android 12+) -->
+    <!-- 🎨 CRISP SPLASH WITH LOGO + TEXT -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <!-- Main window background -->
+        <!-- Main window background using our layered drawable -->
         <item name="windowSplashScreenBackground">#F8FAFC</item>
         <item name="android:windowSplashScreenBackground">#F8FAFC</item>
 
-        <!-- Center Logo Icon Container Background (Forces off-white instead of dark circle) -->
-        <item name="windowSplashScreenIconBackgroundColor">#F8FAFC</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">#F8FAFC</item>
+        <!-- Center Icon pointing to full splash image -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_background</item>
 
-        <!-- Center Logo Icon -->
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-
-        <!-- Status Bar Controls -->
+        <!-- Status Bar -->
         <item name="android:statusBarColor">#F8FAFC</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
