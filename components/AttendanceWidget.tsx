@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/apiService';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from './ToastContext';
 
 interface AttendanceWidgetProps {
   currentVisitsCount: number;
@@ -32,6 +33,7 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
   onStateChange
 }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [activeShift, setActiveShift] = useState<ActiveAttendance | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -41,12 +43,16 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
   const DAILY_TARGET = 7;
   const todayDateStr = new Date().toISOString().split('T')[0];
 
+  // 🔑 SAFE USER ID EXTRACTION (Handles user.id, user.user_id, or local storage session fallback)
+  const activeUserId = (user as any)?.id || (user as any)?.user_id || localStorage.getItem('vsf_user_id');
+  const activeUserName = user?.name || (user as any)?.full_name || 'Field Representative';
+
   // 1. Fetch current day's active shift layout on load
   const checkCurrentShiftStatus = async () => {
-    if (!user?.id) return;
+    if (!activeUserId) return;
     setIsLoading(true);
     try {
-      const data = await api.request(`/attendance?user_id=eq.${user.id}&date=eq.${todayDateStr}`);
+      const data = await api.request(`/attendance?user_id=eq.${activeUserId}&date=eq.${todayDateStr}`);
       if (Array.isArray(data) && data.length > 0) {
         setActiveShift(data[0]);
       } else {
@@ -84,6 +90,11 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
 
   // 3. Morning Entry Punch Action
   const handlePunchIn = async () => {
+    if (!activeUserId) {
+      showToast("Session Error: Unable to identify user account. Please log out and in again.", "error");
+      return;
+    }
+
     setGpsLoading(true);
     try {
       const location = await getLiveLocation();
@@ -91,8 +102,8 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
 
       const payload = {
         id: shiftId,
-        user_id: user!.id,
-        user_name: user!.name,
+        user_id: activeUserId,
+        user_name: activeUserName,
         punch_in: new Date().toISOString(),
         date: todayDateStr,
         punch_in_location: location,
@@ -102,11 +113,11 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
       };
 
       await api.request('/attendance', { method: 'POST', body: JSON.stringify(payload) });
-      alert("🌅 Good Morning! Shift punched in. GPS trail locked.");
+      showToast("🌅 Good Morning! Shift punched in. GPS trail locked.", "success");
       checkCurrentShiftStatus();
       if (onStateChange) onStateChange();
     } catch (err: any) {
-      alert(`Punch In Failed: ${err}`);
+      showToast(`Punch In Failed: ${err}`, "error");
     } finally {
       setGpsLoading(false);
     }
@@ -126,11 +137,11 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
           total_visits_logged: currentVisitsCount
         })
       });
-      alert("✅ Shift closed out successfully. Great work covering your sector today!");
+      showToast("✅ Shift closed out successfully. Great work covering your sector today!", "success");
       checkCurrentShiftStatus();
       if (onStateChange) onStateChange();
     } catch (err: any) {
-      alert(`Punch Out Failed: ${err}`);
+      showToast(`Punch Out Failed: ${err}`, "error");
     } finally {
       setGpsLoading(false);
     }
@@ -140,7 +151,7 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
   const handlePunchOutEmergency = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) {
-      alert("Please state a valid reason for the operational log audit.");
+      showToast("Please state a valid reason for the operational log audit.", "info");
       return;
     }
 
@@ -158,12 +169,12 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
         })
       });
 
-      alert("⚠️ Request Dispatched: Early departure logged. Forwarded to Admin Review queue.");
+      showToast("⚠️ Request Dispatched: Early departure logged. Forwarded to Admin Review queue.", "info");
       setShowExceptionForm(false);
       checkCurrentShiftStatus();
       if (onStateChange) onStateChange();
     } catch (err: any) {
-      alert(`Submission Fault: ${err}`);
+      showToast(`Submission Fault: ${err}`, "error");
     } finally {
       setGpsLoading(false);
     }
