@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Layers,
@@ -16,10 +16,15 @@ import {
   Zap,
   TrendingUp,
   Clock,
-  ChevronRight
+  ChevronRight,
+  Bell,
+  MapPin
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Visit, Lead } from '../types';
+import { FieldTrackingMap, MapPoint } from '../components/FieldTrackingMap';
+import { NotificationModal } from '../components/NotificationModal';
+import { api } from '../services/apiService';
 
 interface AdminDashboardProps {
   stats: { visits: number; users: number; leads: number };
@@ -63,10 +68,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   stats, visits, leads, totalPipelineValue, chartData
 }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ROSTER'>('OVERVIEW');
-  const todayDateStr = new Date().toISOString().split('T')[0];
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ROSTER' | 'MAP'>('OVERVIEW');
+  const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
+  const [mapPoints, setMapPoints] = useState<MapPoint[]>([]);
 
+  const todayDateStr = new Date().toISOString().split('T')[0];
   const todayVisits = visits.filter(v => v.timestamp.startsWith(todayDateStr));
+
+  // Extract Map Points from Visits containing GPS coordinates
+  useEffect(() => {
+    const points: MapPoint[] = visits
+      .filter((v: any) => v.latitude && v.longitude)
+      .map((v: any) => ({
+        id: v.id,
+        title: v.companyName || 'Client Site',
+        subtitle: v.representativeName || 'Field Representative',
+        lat: Number(v.latitude),
+        lng: Number(v.longitude),
+        type: 'VISIT',
+        timestamp: v.timestamp || new Date().toISOString()
+      }));
+
+    setMapPoints(points);
+  }, [visits]);
 
   // Group visits by representative to display active runtime logs
   const staffPerformanceMap: { [key: string]: { name: string; totalToday: number; lastStop: string } } = {};
@@ -108,12 +132,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               Analytics Matrix
             </button>
             <button
+              onClick={() => setActiveTab('MAP')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center space-x-1 ${activeTab === 'MAP' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
+            >
+              <MapPin size={12} className="text-indigo-600" />
+              <span>Live Field Map</span>
+            </button>
+            <button
               onClick={() => setActiveTab('ROSTER')}
               className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === 'ROSTER' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
             >
               Team Deployment ({activeStaffArray.length})
             </button>
           </div>
+
+          <button
+            onClick={() => setIsNotifModalOpen(true)}
+            className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center space-x-1.5"
+          >
+            <Bell size={14} />
+            <span>Broadcast Alert</span>
+          </button>
 
           <button
             onClick={() => navigate('/create-quotation')}
@@ -141,7 +180,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <MetricBox title="Active Field Forces" value={stats.users} description="Registered agency staff" icon={Users} color="text-emerald-600" bg="bg-emerald-50" />
       </div>
 
-      {activeTab === 'OVERVIEW' ? (
+      {/* TAB MODULE C: LIVE FIELD MAP */}
+      {activeTab === 'MAP' && (
+        <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Sector Field GPS Tracking</h3>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Live location markers for active marketing visits and team deployments</p>
+            </div>
+            <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase tracking-wider">
+              {mapPoints.length} Markers Pinned
+            </span>
+          </div>
+
+          <FieldTrackingMap points={mapPoints} />
+        </div>
+      )}
+
+      {activeTab === 'OVERVIEW' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
           <div className="lg:col-span-2 space-y-6">
@@ -183,7 +239,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Real-time incoming drop logs</p>
                 </div>
                 <button
-                  onClick={() => navigate('/visit-logs')}
+                  onClick={() => navigate('/visits')}
                   className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline flex items-center"
                 >
                   <span>Open Master Log</span>
@@ -245,7 +301,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
                 </button>
                 <button
-                  onClick={() => navigate('/visit-logs')}
+                  onClick={() => navigate('/visits')}
                   className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-left transition-all flex items-center justify-between border border-white/10 group"
                 >
                   <div className="flex items-center space-x-2.5">
@@ -312,8 +368,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
         </div>
-      ) : (
-        /* TAB MODULE B: DENSE TEAM ROSTER METRICS */
+      )}
+
+      {/* TAB MODULE B: DENSE TEAM ROSTER METRICS */}
+      {activeTab === 'ROSTER' && (
         <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
           <div>
             <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Active Representatives Tracker</h3>
@@ -354,6 +412,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
         </div>
       )}
+
+      {/* Broadcast Notification Dispatcher Modal */}
+      <NotificationModal
+        isOpen={isNotifModalOpen}
+        onClose={() => setIsNotifModalOpen(false)}
+      />
 
     </div>
   );
