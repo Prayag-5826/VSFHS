@@ -1,30 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<>
+<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Vidhya Security Force - Field Management System</title>
-
-  <style>
-    /* 🛡️ Fix Android Capacitor WebView Native Picker / Select Invisible Text Issue */
-    select option {
-      background-color: #0f172a !important;
-      /* Dark slate background */
-      color: #ffffff !important;
-      /* High-contrast white text */
-      font-weight: 600 !important;
-      padding: 12px !important;
-    }
-
-    /* Force dark background for light mode preference in WebView */
-    @media (prefers-color-scheme: light) {
-      select option {
-        background-color: #1e293b !important;
-        color: #f8fafc !important;
-      }
-    }
-  </style>
 
   <!-- ☀️ Force light color scheme to prevent Android dark mode auto-inversion -->
   <meta name="color-scheme" content="light">
@@ -45,8 +24,7 @@
   <!-- Fonts & Styling -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
-    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     body {
       font-family: 'Inter', sans-serif;
@@ -79,9 +57,25 @@
     ::-webkit-datetime-edit-year-field {
       color: #0f172a !important;
     }
+
+    /* 🛡️ Fix Android Capacitor WebView Native Picker / Select Invisible Text Issue */
+    select option {
+      background-color: #0f172a !important; /* Dark slate background */
+      color: #ffffff !important;            /* High-contrast white text */
+      font-weight: 600 !important;
+      padding: 12px !important;
+    }
+
+    /* Force dark background for light mode preference in WebView */
+    @media (prefers-color-scheme: light) {
+      select option {
+        background-color: #1e293b !important;
+        color: #f8fafc !important;
+      }
+    }
   </style>
 
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
     "react-router-dom": "https://esm.sh/react-router-dom@^7.12.0",
@@ -94,23 +88,21 @@
   }
 }
 </script>
-  <link rel="stylesheet" href="/index.css">
-  </head>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+  <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
 
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('SW Registered!', reg))
+        .catch(err => console.error('SW Registration Failed!', err));
+    });
+  }
+</script>
 
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('SW Registered!', reg))
-            .catch(err => console.error('SW Registration Failed!', err));
-        });
-      }
-    </script>
-
-  </body>
-
+</body>
 </html>
