@@ -26,9 +26,17 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    isAuthenticated: false,
+  // ⚡ Instant synchronous session restore on page refresh
+  const [authState, setAuthState] = useState<AuthState>(() => {
+    try {
+      const activeSession = localStorage.getItem('vs_active_user');
+      if (activeSession) {
+        return { user: JSON.parse(activeSession), isAuthenticated: true };
+      }
+    } catch (e) {
+      console.error("Failed to parse cached session", e);
+    }
+    return { user: null, isAuthenticated: false };
   });
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -36,22 +44,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initApp = async () => {
       try {
-        // Load settings from Supabase Cloud backend
+        // Load settings from Supabase Cloud backend independently
         const cloudSettings = await api.request('/settings');
         if (cloudSettings) {
-          // Merge incoming cloud values with defaults to guarantee no missing fields
           setSettings({
             ...DEFAULT_SETTINGS,
             ...cloudSettings
           });
         }
-
-        const activeSession = localStorage.getItem('vs_active_user');
-        if (activeSession) {
-          setAuthState({ user: JSON.parse(activeSession), isAuthenticated: true });
-        }
       } catch (e) {
-        console.error("Initialization failed", e);
+        console.error("Cloud settings fetch failed (using local defaults)", e);
       }
     };
     initApp();
@@ -92,7 +94,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSettings(newSettings);
     } catch (err) {
       console.error("Failed to update cloud settings", err);
-      // Fallback update locally so the UI feels responsive
       setSettings(newSettings);
     }
   };
