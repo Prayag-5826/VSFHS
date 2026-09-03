@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
     return {
       base: './', // 👈 CRITICAL FIX: Relative asset loading prevents white screen in Android APK
       server: {
-        port: 3000,
+        port: 5173,
         host: '0.0.0.0',
       },
       build: {

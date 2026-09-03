@@ -1,30 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Layers,
   Briefcase,
   IndianRupee,
   Users,
-  Activity,
-  ShieldAlert,
   Building2,
-  ExternalLink,
   ShieldCheck,
   ArrowUpRight,
-  UserCheck,
   FileSpreadsheet,
-  Zap,
-  TrendingUp,
-  Clock,
-  ChevronRight,
   Bell,
-  MapPin
+  MapPin,
+  Clock,
+  ShieldAlert,
+  ChevronRight,
+  Sparkles
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 import { Visit, Lead } from '../types';
 import { FieldTrackingMap, MapPoint } from '../components/FieldTrackingMap';
 import { NotificationModal } from '../components/NotificationModal';
-import { api } from '../services/apiService';
 
 interface AdminDashboardProps {
   stats: { visits: number; users: number; leads: number };
@@ -34,376 +38,243 @@ interface AdminDashboardProps {
   chartData: any[];
 }
 
-const MetricBox: React.FC<{
-  title: string;
-  value: string | number;
-  description: string;
-  icon: React.ElementType;
-  color: string;
-  bg: string;
-  badgeText?: string;
-}> = ({ title, value, description, icon: Icon, color, bg, badgeText }) => (
-  <div className="relative bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all duration-300 group overflow-hidden">
-    <div className="flex items-center justify-between mb-3">
-      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</span>
-      <div className={`p-3 rounded-2xl ${bg} ${color} shadow-sm group-hover:scale-110 transition-transform duration-300 shrink-0`}>
-        <Icon size={20} />
-      </div>
-    </div>
-    <div className="space-y-1">
-      <h3 className="text-3xl font-mono font-black text-slate-900 tracking-tight">{value}</h3>
-      <div className="flex items-center justify-between pt-1">
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{description}</p>
-        {badgeText && (
-          <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
-            {badgeText}
-          </span>
-        )}
-      </div>
-    </div>
-  </div>
-);
-
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
-  stats, visits, leads, totalPipelineValue, chartData
+  stats,
+  visits,
+  leads,
+  totalPipelineValue,
+  chartData
 }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ROSTER' | 'MAP'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'MAP' | 'ROSTER'>('OVERVIEW');
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
   const [mapPoints, setMapPoints] = useState<MapPoint[]>([]);
 
   const todayDateStr = new Date().toISOString().split('T')[0];
-  const todayVisits = visits.filter(v => v.timestamp.startsWith(todayDateStr));
 
-  // Extract Map Points from Visits containing GPS coordinates
+  const todayVisits = useMemo(() => {
+    return visits.filter((v: any) => {
+      const stamp = v.timestamp || v.created_at || '';
+      return stamp.startsWith(todayDateStr);
+    });
+  }, [visits, todayDateStr]);
+
+  // Extract coordinates for field map
   useEffect(() => {
     const points: MapPoint[] = visits
-      .filter((v: any) => v.latitude && v.longitude)
+      .filter((v: any) => {
+        const lat = v.location?.latitude ?? v.latitude;
+        const lng = v.location?.longitude ?? v.longitude;
+        return typeof lat === 'number' && typeof lng === 'number';
+      })
       .map((v: any) => ({
         id: v.id,
-        title: v.companyName || 'Client Site',
-        subtitle: v.representativeName || 'Field Representative',
-        lat: Number(v.latitude),
-        lng: Number(v.longitude),
+        title: v.companyName || v.company_name || 'Client Site',
+        subtitle: v.representativeName || v.representative_name || 'Field Officer',
+        lat: Number(v.location?.latitude ?? v.latitude),
+        lng: Number(v.location?.longitude ?? v.longitude),
         type: 'VISIT',
-        timestamp: v.timestamp || new Date().toISOString()
+        timestamp: v.timestamp || v.created_at || new Date().toISOString()
       }));
 
     setMapPoints(points);
   }, [visits]);
 
-  // Group visits by representative to display active runtime logs
-  const staffPerformanceMap: { [key: string]: { name: string; totalToday: number; lastStop: string } } = {};
+  // Group visits per representative
+  const staffPerformance = useMemo(() => {
+    const map: { [key: string]: { name: string; totalToday: number; lastStop: string } } = {};
 
-  todayVisits.forEach(v => {
-    const repId = v.representativeId || 'UNASSIGNED';
-    const repName = v.representativeName || 'Field Officer';
-    if (!staffPerformanceMap[repId]) {
-      staffPerformanceMap[repId] = { name: repName, totalToday: 0, lastStop: v.companyName };
-    }
-    staffPerformanceMap[repId].totalToday += 1;
-    staffPerformanceMap[repId].lastStop = v.companyName;
-  });
+    todayVisits.forEach((v: any) => {
+      const repId = v.representative_id || v.representativeId || 'UNASSIGNED';
+      const repName = v.representative_name || v.representativeName || 'Field Officer';
+      const company = v.company_name || v.companyName || 'Patrol Point';
 
-  const activeStaffArray = Object.values(staffPerformanceMap);
+      if (!map[repId]) {
+        map[repId] = { name: repName, totalToday: 0, lastStop: company };
+      }
+      map[repId].totalToday += 1;
+      map[repId].lastStop = company;
+    });
+
+    return Object.values(map);
+  }, [todayVisits]);
+
+  const sanitizedChartData = useMemo(() => {
+    if (Array.isArray(chartData) && chartData.length > 0) return chartData;
+    return [
+      { name: 'Mon', pitches: 0 },
+      { name: 'Tue', pitches: 0 },
+      { name: 'Wed', pitches: 0 },
+      { name: 'Thu', pitches: 0 },
+      { name: 'Fri', pitches: 0 },
+      { name: 'Sat', pitches: 0 },
+      { name: 'Sun', pitches: 0 }
+    ];
+  }, [chartData]);
 
   return (
-    <div className="w-full space-y-8 px-2 pb-12 animate-in fade-in duration-300">
+    <div className="w-full space-y-6 px-1 sm:px-2 pb-14 animate-in fade-in duration-200">
 
-      {/* Dynamic Command Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-slate-200/60 pb-6">
+      {/* Clean Single Master Header */}
+      <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2 text-indigo-600 mb-1">
-            <ShieldCheck size={18} className="animate-pulse" />
-            <span className="text-[10px] font-black tracking-widest uppercase">Management Control Suite</span>
+          <div className="flex items-center space-x-1.5 text-red-700 text-[10.5px] font-mono font-bold tracking-wider uppercase mb-0.5">
+            <ShieldCheck size={14} />
+            <span>Central Operations Command</span>
           </div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase">HQ Executive Command</h1>
-          <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-0.5">
-            Real-time monitoring panel for Vidhya Security Force & Housekeeping Services
-          </p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase">
+            Operations Overview
+          </h1>
         </div>
 
+        {/* Unified Tab & Action Bar */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="bg-slate-100 p-1 rounded-2xl border border-slate-200/80 flex space-x-1">
+          <div className="bg-[#FBFBF9] p-1 rounded-2xl border border-slate-200 flex items-center gap-1">
             <button
               onClick={() => setActiveTab('OVERVIEW')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === 'OVERVIEW' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                activeTab === 'OVERVIEW'
+                  ? 'bg-red-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              Analytics Matrix
+              Dashboard
             </button>
             <button
               onClick={() => setActiveTab('MAP')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center space-x-1 ${activeTab === 'MAP' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'MAP'
+                  ? 'bg-red-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              <MapPin size={12} className="text-indigo-600" />
-              <span>Live Field Map</span>
+              <MapPin size={13} className={activeTab === 'MAP' ? 'text-amber-300' : 'text-slate-400'} />
+              <span>Map View</span>
             </button>
             <button
               onClick={() => setActiveTab('ROSTER')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === 'ROSTER' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                activeTab === 'ROSTER'
+                  ? 'bg-red-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              Team Deployment ({activeStaffArray.length})
+              Officers ({staffPerformance.length})
             </button>
           </div>
 
           <button
             onClick={() => setIsNotifModalOpen(true)}
-            className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center space-x-1.5"
+            className="p-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+            title="Broadcast Field Notice"
           >
-            <Bell size={14} />
-            <span>Broadcast Alert</span>
+            <Bell size={16} className="text-amber-600" />
           </button>
 
           <button
             onClick={() => navigate('/create-quotation')}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center space-x-1.5"
+            className="px-4 py-2 bg-red-700 hover:bg-red-800 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-xs flex items-center gap-1.5 cursor-pointer"
           >
-            <FileSpreadsheet size={14} />
-            <span>Proposal Desk</span>
-          </button>
-
-          <button
-            onClick={() => navigate('/add-user')}
-            className="bg-slate-950 hover:bg-black text-white font-black text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 flex items-center space-x-1.5"
-          >
-            <UserCheck size={14} />
-            <span>Add Officer</span>
+            <FileSpreadsheet size={14} className="text-amber-300" />
+            <span>New Quote</span>
           </button>
         </div>
       </div>
 
-      {/* Grid KPI Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricBox title="Global Brand Pitches" value={stats.visits} description="Total historical drops" icon={Layers} color="text-indigo-600" bg="bg-indigo-50" badgeText="LIVE" />
-        <MetricBox title="Pipeline Contracts" value={stats.leads} description="Active business leads" icon={Briefcase} color="text-slate-900" bg="bg-slate-100" />
-        <MetricBox title="Secured Asset Value" value={`₹${totalPipelineValue.toLocaleString('en-IN')}`} description="Estimated revenue capacity" icon={IndianRupee} color="text-amber-600" bg="bg-amber-50" />
-        <MetricBox title="Active Field Forces" value={stats.users} description="Registered agency staff" icon={Users} color="text-emerald-600" bg="bg-emerald-50" />
+      {/* Metrics Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">Total Visits</span>
+            <Layers size={18} className="text-red-700" />
+          </div>
+          <p className="text-2xl font-mono font-black text-slate-900">{stats.visits}</p>
+          <span className="text-[10px] text-slate-400 font-medium">Logged patrol drops</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">Active Leads</span>
+            <Briefcase size={18} className="text-amber-700" />
+          </div>
+          <p className="text-2xl font-mono font-black text-slate-900">{stats.leads}</p>
+          <span className="text-[10px] text-slate-400 font-medium">Commercial opportunities</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">Pipeline Value</span>
+            <IndianRupee size={18} className="text-emerald-700" />
+          </div>
+          <p className="text-2xl font-mono font-black text-slate-900">
+            ₹{totalPipelineValue.toLocaleString('en-IN')}
+          </p>
+          <span className="text-[10px] text-slate-400 font-medium">Estimated monthly volume</span>
+        </div>
+
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider">Enrolled Staff</span>
+            <Users size={18} className="text-slate-700" />
+          </div>
+          <p className="text-2xl font-mono font-black text-slate-900">{stats.users}</p>
+          <span className="text-[10px] text-slate-400 font-medium">Verified field officers</span>
+        </div>
       </div>
 
-      {/* TAB MODULE C: LIVE FIELD MAP */}
+      {/* VIEW: LIVE SATELLITE MAP */}
       {activeTab === 'MAP' && (
-        <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Sector Field GPS Tracking</h3>
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Live location markers for active marketing visits and team deployments</p>
+              <h3 className="text-sm font-black text-slate-900 uppercase">Live Field Positions</h3>
+              <p className="text-xs text-slate-400">GPS satellite locks from active client visits</p>
             </div>
-            <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase tracking-wider">
-              {mapPoints.length} Markers Pinned
+            <span className="text-xs font-mono font-bold text-red-700 bg-red-50 border border-red-200 px-2.5 py-1 rounded-full">
+              {mapPoints.length} Pins Loaded
             </span>
           </div>
-
           <FieldTrackingMap points={mapPoints} />
         </div>
       )}
 
-      {activeTab === 'OVERVIEW' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-          <div className="lg:col-span-2 space-y-6">
-            {/* Recharts Performance Visualizations */}
-            <div className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xs font-black text-slate-900 uppercase tracking-widest">Weekly Performance Aggregate</h2>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Combined field metrics chart logs</p>
-                </div>
-                <div className="flex items-center space-x-1.5 text-[9px] font-black text-slate-400 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 tracking-widest">
-                  <Activity size={12} className="text-indigo-600 animate-pulse" />
-                  <span>LIVE TRACKER</span>
-                </div>
-              </div>
-
-              <div className="h-[280px] w-full pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                    <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }} />
-                    <Bar dataKey="pitches" radius={[6, 6, 0, 0]}>
-                      {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.pitches > 0 ? '#4f46e5' : '#cbd5e1'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Comprehensive Logs Roster */}
-            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div>
-                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Latest System Actions</h3>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Real-time incoming drop logs</p>
-                </div>
-                <button
-                  onClick={() => navigate('/visits')}
-                  className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline flex items-center"
-                >
-                  <span>Open Master Log</span>
-                  <ArrowUpRight size={14} className="ml-0.5" />
-                </button>
-              </div>
-
-              {visits.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-xs font-bold uppercase">No data streams arriving yet.</div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {visits.slice(0, 5).map((visit) => (
-                    <div key={visit.id} className="py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/50 px-2 rounded-xl transition-all">
-                      <div className="flex items-center space-x-3.5 min-w-0">
-                        <div className="w-10 h-10 rounded-2xl bg-slate-950 text-white flex items-center justify-center shrink-0 shadow-sm">
-                          <Building2 size={16} />
-                        </div>
-                        <div className="min-w-0">
-                          <h4 className="text-xs font-black text-slate-900 uppercase truncate">{visit.companyName}</h4>
-                          <p className="text-[10px] font-medium text-slate-400 uppercase tracking-tighter mt-0.5 truncate">
-                            👤 Rep: <strong className="text-slate-700 font-bold">{visit.representativeName || 'Agent'}</strong> • {visit.visitPurpose}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <span className="text-[10px] font-mono font-black text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg block">
-                          {visit.interactionOutcome}
-                        </span>
-                        <span className="text-[8px] font-bold text-slate-400 block mt-1 uppercase tracking-wider">
-                          {new Date(visit.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right Sidebar Operations & High Value Leads Panel */}
-          <div className="space-y-6">
-
-            {/* Quick Actions Card */}
-            <div className="bg-gradient-to-br from-indigo-900 to-slate-950 text-white p-6 rounded-[2.5rem] shadow-xl border border-indigo-900/40 space-y-4">
-              <div className="flex items-center space-x-2 text-indigo-300 border-b border-indigo-800/60 pb-3">
-                <Zap size={16} className="text-amber-400" />
-                <h3 className="text-xs font-black uppercase tracking-widest text-indigo-200">Executive Shortcuts</h3>
-              </div>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  onClick={() => navigate('/create-quotation')}
-                  className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-left transition-all flex items-center justify-between border border-white/10 group"
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <FileSpreadsheet size={16} className="text-amber-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">Quotation & Proposal Desk</span>
-                  </div>
-                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                </button>
-                <button
-                  onClick={() => navigate('/visits')}
-                  className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-left transition-all flex items-center justify-between border border-white/10 group"
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <Layers size={16} className="text-indigo-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">Field Visit Logs</span>
-                  </div>
-                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                </button>
-                <button
-                  onClick={() => navigate('/reports')}
-                  className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-2xl text-left transition-all flex items-center justify-between border border-white/10 group"
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <ShieldAlert size={16} className="text-emerald-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">Audit & Attendance Desk</span>
-                  </div>
-                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                </button>
-              </div>
-            </div>
-
-            {/* Operations Control */}
-            <div className="bg-slate-950 text-white p-6 rounded-[2.5rem] shadow-xl border border-slate-900 space-y-4">
-              <div className="flex items-center space-x-2 text-amber-400 border-b border-slate-800 pb-3">
-                <ShieldAlert size={16} />
-                <h3 className="text-xs font-black uppercase tracking-widest text-amber-400">Operations Control</h3>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-2">
-                <span className="text-[9px] font-black uppercase text-indigo-400 tracking-widest bg-indigo-950 px-2 py-0.5 rounded">Attendance Watch</span>
-                <p className="text-[11px] font-bold text-slate-300 leading-relaxed">
-                  Review and verify remote location attendance bypass logs using the dedicated checking terminal.
-                </p>
-                <button
-                  onClick={() => navigate('/reports')}
-                  className="w-full mt-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9px] uppercase tracking-widest rounded-xl transition-all text-center flex items-center justify-center space-x-1"
-                >
-                  <span>Open Audit Terminal</span>
-                  <ExternalLink size={10} />
-                </button>
-              </div>
-            </div>
-
-            {/* High Value Leads Sidebar */}
-            <div className="bg-white border border-slate-100 p-6 rounded-[2.5rem] shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">High Value Leads</h3>
-                <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">PROSPECTS</span>
-              </div>
-              <div className="space-y-3">
-                {leads.filter(l => (l.estimatedValue || 0) > 20000).slice(0, 3).map(lead => (
-                  <div key={lead.id} className="p-3.5 bg-slate-50 border border-slate-200/60 rounded-2xl space-y-1">
-                    <div className="flex justify-between items-center">
-                      <h4 className="text-xs font-black text-slate-900 uppercase truncate max-w-[130px]">{lead.companyName}</h4>
-                      <span className="text-[10px] font-mono font-black text-emerald-600">
-                        ₹{lead.estimatedValue?.toLocaleString('en-IN')}
-                      </span>
-                    </div>
-                    <p className="text-[9px] font-medium text-slate-400 uppercase">Status: {lead.status}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-          </div>
-
-        </div>
-      )}
-
-      {/* TAB MODULE B: DENSE TEAM ROSTER METRICS */}
+      {/* VIEW: ROSTER DUTY TABLE */}
       {activeTab === 'ROSTER' && (
-        <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-xl space-y-4">
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
           <div>
-            <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">Active Representatives Tracker</h3>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Calculated tracking logs for today's field actions</p>
+            <h3 className="text-sm font-black text-slate-900 uppercase">Today's Field Officer Patrols</h3>
+            <p className="text-xs text-slate-400">Daily quota tracking (Target: 7 client drops per day)</p>
           </div>
 
-          {activeStaffArray.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
-              <p className="text-xs font-bold uppercase">No field officers have checked into active status streams today.</p>
+          {staffPerformance.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-xs">
+              No field officers have checked in or logged visits today.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[650px]">
                 <thead>
-                  <tr className="border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    <th className="py-3 px-4">Field Representative</th>
-                    <th className="py-3 px-4">Today's Total Pitches</th>
-                    <th className="py-3 px-4">Shift Status Bar</th>
-                    <th className="py-3 px-4">Last Monitored Location Node</th>
+                  <tr className="border-b border-slate-100 text-[10px] font-mono font-bold text-slate-400 uppercase">
+                    <th className="py-3 px-4">Officer Name</th>
+                    <th className="py-3 px-4">Visits Today</th>
+                    <th className="py-3 px-4">Shift Completion</th>
+                    <th className="py-3 px-4">Recent Client Location</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700">
-                  {activeStaffArray.map((staff, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/80 transition-all">
-                      <td className="py-4 px-4 font-black text-slate-900 uppercase">{staff.name}</td>
-                      <td className="py-4 px-4 font-mono text-indigo-600 font-black text-sm">{staff.totalToday} / 7 Drops</td>
-                      <td className="py-4 px-4">
-                        <div className="w-28 bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                          <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min((staff.totalToday / 7) * 100, 100)}%` }} />
+                  {staffPerformance.map((staff, i) => (
+                    <tr key={i} className="hover:bg-slate-50/70 transition">
+                      <td className="py-3.5 px-4 text-slate-900 uppercase font-black">{staff.name}</td>
+                      <td className="py-3.5 px-4 font-mono text-red-700">{staff.totalToday} / 7 Drops</td>
+                      <td className="py-3.5 px-4">
+                        <div className="w-32 bg-slate-100 h-2 rounded-full overflow-hidden">
+                          <div
+                            className="bg-red-700 h-full rounded-full"
+                            style={{ width: `${Math.min((staff.totalToday / 7) * 100, 100)}%` }}
+                          />
                         </div>
                       </td>
-                      <td className="py-4 px-4 uppercase text-slate-400 truncate max-w-[200px]">{staff.lastStop}</td>
+                      <td className="py-3.5 px-4 text-slate-500 uppercase">{staff.lastStop}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -413,7 +284,157 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Broadcast Notification Dispatcher Modal */}
+      {/* VIEW: MAIN ANALYTICS OVERVIEW */}
+      {activeTab === 'OVERVIEW' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+          {/* Activity Chart (8 Cols) */}
+          <div className="lg:col-span-8 bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase">Weekly Inspection Volume</h3>
+                <p className="text-xs text-slate-400">Total client visits per day across the agency</p>
+              </div>
+            </div>
+
+            {/* Guaranteed Height Box to Silence Recharts Warning */}
+            <div className="w-full min-w-0 h-64 pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={sanitizedChartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 10 }}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    cursor={{ fill: '#FBFBF9' }}
+                    contentStyle={{
+                      backgroundColor: '#ffffff',
+                      borderRadius: '12px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                      fontSize: '11px',
+                      fontWeight: 'bold'
+                    }}
+                  />
+                  <Bar dataKey="pitches" radius={[6, 6, 0, 0]}>
+                    {sanitizedChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.pitches > 0 ? '#B91C1C' : '#e2e8f0'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Compliance & Audit Watch Card (4 Cols) */}
+          <div className="lg:col-span-4 bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-1.5 text-red-700">
+                <ShieldAlert size={16} />
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                  PSARA Compliance
+                </h3>
+              </div>
+              <span className="text-[9px] font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full uppercase">
+                Active
+              </span>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-[#FBFBF9] border border-slate-200/80 rounded-2xl space-y-1">
+                <span className="text-[10px] font-mono text-slate-400 uppercase font-bold block">
+                  Biometric Duty Punches
+                </span>
+                <p className="text-slate-800 font-bold">
+                  {todayVisits.length} Site Reports Verified Today
+                </p>
+              </div>
+
+              <div className="p-3 bg-[#FBFBF9] border border-slate-200/80 rounded-2xl space-y-1">
+                <span className="text-[10px] font-mono text-slate-400 uppercase font-bold block">
+                  High-Value Proposals
+                </span>
+                <p className="text-slate-800 font-bold">
+                  {leads.filter((l: any) => (l.estimatedValue || l.estimated_value || 0) > 25000).length} Deals Exceeding ₹25,000/mo
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => navigate('/reports')}
+              className="w-full py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1"
+            >
+              <span>Audit Terminal</span>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {/* Full-Width Recent Incoming Visits Table */}
+          <div className="lg:col-span-12 bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase">Recent Client Encounters</h3>
+                <p className="text-xs text-slate-400">Incoming logs with verified timestamps and outcomes</p>
+              </div>
+              <button
+                onClick={() => navigate('/visits')}
+                className="text-xs font-mono font-bold text-red-700 hover:text-red-800 uppercase tracking-wider hover:underline flex items-center cursor-pointer"
+              >
+                <span>View All Visits</span>
+                <ArrowUpRight size={13} className="ml-0.5" />
+              </button>
+            </div>
+
+            {visits.length === 0 ? (
+              <p className="text-xs text-slate-400 py-6 text-center">No field logs registered yet.</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {visits.slice(0, 5).map((v: any) => {
+                  const company = v.companyName || v.company_name || 'Client Site';
+                  const rep = v.representativeName || v.representative_name || 'Officer';
+                  const outcome = v.interactionOutcome || v.interaction_outcome || 'VISITED';
+                  const stamp = v.timestamp || v.created_at || new Date().toISOString();
+
+                  return (
+                    <div key={v.id} className="py-3 flex items-center justify-between gap-4 hover:bg-slate-50/70 px-2 rounded-xl transition">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-red-50 border border-red-100 text-red-700 flex items-center justify-center shrink-0">
+                          <Building2 size={16} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-slate-900 uppercase truncate">{company}</p>
+                          <p className="text-[10px] text-slate-500 font-medium">Logged by {rep}</p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-mono font-bold text-slate-800 bg-[#FBFBF9] border border-slate-200 px-2 py-0.5 rounded-lg inline-block">
+                          {outcome.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                          {new Date(stamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* Broadcast Modal */}
       <NotificationModal
         isOpen={isNotifModalOpen}
         onClose={() => setIsNotifModalOpen(false)}

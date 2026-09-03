@@ -1,6 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
-  UserPlus,
   Camera,
   Calendar,
   User,
@@ -14,7 +13,10 @@ import {
   Shield,
   Printer,
   X,
-  CameraIcon
+  CameraIcon,
+  ShieldAlert,
+  BadgeAlert,
+  Lock
 } from 'lucide-react';
 import { api } from '../services/apiService';
 import { Role, User as UserType } from '../types';
@@ -33,12 +35,20 @@ const AddUser: React.FC = () => {
   const [isSuccess, setIsSuccess] = useState(false);
   const [generatedUser, setGeneratedUser] = useState<UserType | null>(null);
   const [error, setError] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Camera State
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Calculate 18-year cutoff date for PSARA compliance
+  const maxAllowedDob = useMemo(() => {
+    const today = new Date();
+    today.setFullYear(today.getFullYear() - 18);
+    return today.toISOString().split('T')[0];
+  }, []);
 
   const startCamera = async () => {
     setCameraActive(true);
@@ -57,7 +67,7 @@ const AddUser: React.FC = () => {
       }
     } catch (err) {
       console.error("Camera access denied", err);
-      alert("Camera access is required for identity snapshots.");
+      alert("Camera access is required for PSARA security identity snapshots.");
       setCameraActive(false);
     }
   };
@@ -79,48 +89,77 @@ const AddUser: React.FC = () => {
       canvas.height = size;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // Center crop for profile picture
         const startX = (video.videoWidth - size) / 2;
         const startY = (video.videoHeight - size) / 2;
         ctx.drawImage(video, startX, startY, size, size, 0, 0, size, size);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        setFormData((prev: any) => ({ ...prev, photo: dataUrl }));
+        setFormData((prev) => ({ ...prev, photo: dataUrl }));
         stopCamera();
       }
     }
   };
 
+  // Simplified VSF credentials logic
   const generateCredentials = () => {
-    const randomCode = Math.floor(100000 + Math.random() * 900000);
-    const userId = `VSFHS${randomCode}`;
+    const randomBadge = Math.floor(100000 + Math.random() * 900000);
+    const userId = `VSFHS${randomBadge}`;
     const password = Math.floor(10000000 + Math.random() * 90000000).toString();
     return { userId, password };
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setIsLoading(true);
 
+    // 1. Mandatory Mobile Validation
     if (formData.phone.length !== 10) {
-      setError('Mobile number must be exactly 10 digits.');
-      setIsLoading(false);
+      setError('Mobile contact number must be exactly 10 digits.');
       return;
     }
 
-    const { userId, password } = generateCredentials();
+    // 2. Mandatory Photo Validation
+    if (!formData.photo) {
+      setError('Identity snapshot is required. Please capture an officer photo before submitting.');
+      return;
+    }
 
-    // Status Logic: Non-admin creation goes to pending
+    // 3. PSARA 18+ Age Validation
+    if (!formData.dob) {
+      setError('Date of birth is required for PSARA background verification.');
+      return;
+    }
+
+    const birthDate = new Date(formData.dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+
+    if (age < 18) {
+      setError(`Candidate is ineligible (${age} years old). PSARA regulations require all security personnel to be at least 18 years of age.`);
+      return;
+    }
+
+    setIsLoading(true);
+    const { userId, password } = generateCredentials();
     const status = currentUser?.role === Role.ADMIN ? 'ACTIVE' : 'PENDING_APPROVAL';
 
     const newUser: UserType = {
       id: userId,
-      name: formData.name.toUpperCase(),
-      email: `${userId.toLowerCase()}@vidhyasecurity.com`,
+      name: formData.name.trim().toUpperCase(),
+      email: `${userId.toLowerCase()}@vidhyasecurityforce.in`,
       phone: formData.phone,
       password: password,
       role: formData.role,
-      avatar: formData.photo || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
+      avatar: formData.photo,
       dob: formData.dob,
       createdAt: new Date().toISOString(),
       status: status as any,
@@ -129,14 +168,19 @@ const AddUser: React.FC = () => {
     };
 
     try {
-      await api.request('/users', {
+      const savedUser = await api.request('/users', {
         method: 'POST',
         body: JSON.stringify(newUser)
       });
+
+      if (!savedUser) {
+        throw new Error('Database server failed to record new deployment entry.');
+      }
+
       setGeneratedUser(newUser);
       setIsSuccess(true);
     } catch (err: any) {
-      setError(err.message || "Failed to create user");
+      setError(err.message || "Failed to register field officer.");
     } finally {
       setIsLoading(false);
     }
@@ -148,46 +192,66 @@ const AddUser: React.FC = () => {
     const printWindow = window.open('', '_blank');
     if (printWindow) {
       printWindow.document.write(`
+        <!DOCTYPE html>
         <html>
           <head>
-            <title>Personnel Deployment Slip - ${generatedUser.id}</title>
+            <title>VSF Personnel Deployment Docket - ${generatedUser.id}</title>
             <style>
-              body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; }
-              .slip { border: 2px solid #e2e8f0; padding: 30px; border-radius: 15px; max-width: 500px; margin: 0 auto; }
-              .header { text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 20px; }
-              .header h1 { margin: 0; font-size: 20px; color: #0f172a; text-transform: uppercase; letter-spacing: 1px; }
-              .header p { margin: 5px 0 0; font-size: 10px; font-weight: bold; color: #6366f1; letter-spacing: 2px; }
-              .info { margin-bottom: 15px; display: flex; justify-content: space-between; }
-              .label { font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; }
-              .value { font-size: 16px; font-weight: 900; color: #1e293b; font-family: monospace; }
-              .footer { margin-top: 30px; font-size: 10px; text-align: center; color: #94a3b8; border-top: 1px dashed #e2e8f0; padding-top: 20px; }
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 30px; color: #0f172a; background: #fff; }
+              .slip { border: 2px solid #b91c1c; padding: 32px; border-radius: 16px; max-width: 520px; margin: 0 auto; }
+              .header { text-align: center; border-bottom: 2px solid #fecdd3; padding-bottom: 20px; margin-bottom: 20px; }
+              .logo-title { font-size: 16px; font-weight: 900; color: #b91c1c; text-transform: uppercase; letter-spacing: 1px; }
+              .license { font-size: 9.5px; font-family: monospace; font-weight: 700; color: #9a3412; margin-top: 4px; }
+              .tag { display: inline-block; background: #fef2f2; color: #991b1b; padding: 3px 10px; font-size: 10px; font-weight: 800; border-radius: 999px; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
+              .photo-container { text-align: center; margin: 15px 0; }
+              .photo-container img { width: 100px; height: 100px; border-radius: 12px; object-fit: cover; border: 2px solid #e2e8f0; }
+              .grid-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid #f1f5f9; }
+              .label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+              .value { font-size: 13px; font-weight: 800; color: #0f172a; }
+              .mono-val { font-family: monospace; font-size: 14px; font-weight: 900; color: #b91c1c; }
+              .footer { margin-top: 24px; text-align: center; font-size: 9px; color: #94a3b8; font-weight: 600; line-height: 1.5; }
+              @media print { body { padding: 0; } .slip { border: 2px solid #000; } }
             </style>
           </head>
           <body>
             <div class="slip">
               <div class="header">
-                <h1>Vidhya Security Force</h1>
-                <p>PERSONNEL DEPLOYMENT AUTHORIZATION</p>
+                <div class="logo-title">Vidhya Security Force &amp; Housekeeping Services</div>
+                <div class="license">PSARA LIC: PSA/L/74/MP/2023/FEB/3/425 &bull; INDORE HQ</div>
+                <div class="tag">Personnel Deployment Docket</div>
               </div>
-              <div class="info">
-                <span class="label">Personnel Name:</span>
+
+              ${generatedUser.avatar ? `
+                <div class="photo-container">
+                  <img src="${generatedUser.avatar}" alt="Officer Photo" />
+                </div>
+              ` : ''}
+
+              <div class="grid-row">
+                <span class="label">Officer Name</span>
                 <span class="value">${generatedUser.name}</span>
               </div>
-              <div class="info">
-                <span class="label">Assigned Role:</span>
+              <div class="grid-row">
+                <span class="label">Assigned Role</span>
                 <span class="value">${generatedUser.role.replace(/_/g, ' ')}</span>
               </div>
-              <div class="info">
-                <span class="label">System User ID:</span>
-                <span class="value" style="color: #4f46e5;">${generatedUser.id}</span>
+              <div class="grid-row">
+                <span class="label">Contact Mobile</span>
+                <span class="value">+91 ${generatedUser.phone}</span>
               </div>
-              <div class="info">
-                <span class="label">Security Passkey:</span>
-                <span class="value">${generatedUser.password}</span>
+              <div class="grid-row">
+                <span class="label">Security Badge ID</span>
+                <span class="mono-val">${generatedUser.id}</span>
               </div>
+              <div class="grid-row">
+                <span class="label">8-Digit Security Key</span>
+                <span class="mono-val" style="color: #0f172a;">${generatedUser.password}</span>
+              </div>
+
               <div class="footer">
-                <p>Generated on ${new Date().toLocaleString()}</p>
-                <p>THIS IS A CONFIDENTIAL DOCUMENT. DO NOT SHARE PASSKEY.</p>
+                <p>Issued on ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} &bull; Central Command Desk</p>
+                <p>CONFIDENTIAL SECURITY CREDENTIAL &bull; FOR AUTHORIZED FIELD PATROL ONLY</p>
               </div>
             </div>
             <script>window.print();</script>
@@ -205,221 +269,324 @@ const AddUser: React.FC = () => {
     setError('');
   };
 
+  // SUCCESS CONFIRMATION MODAL CARD
   if (isSuccess && generatedUser) {
     return (
-      <div className="max-w-2xl mx-auto py-12 text-center">
-        <div className="bg-white p-10 rounded-3xl shadow-xl border border-indigo-100 flex flex-col items-center">
-          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
-            <CheckCircle2 size={40} />
+      <div className="max-w-2xl mx-auto py-8 px-2 sm:px-4 animate-in fade-in duration-300">
+        <div className="bg-white border-2 border-amber-200/80 rounded-3xl p-6 sm:p-10 shadow-xs text-center relative overflow-hidden">
+
+          <div className="w-16 h-16 bg-emerald-50 text-emerald-700 border-2 border-emerald-200 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xs">
+            <CheckCircle2 size={32} />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 mb-2 uppercase tracking-tight">Record Registered!</h1>
-          <p className="text-slate-500 mb-8 font-bold text-xs uppercase tracking-widest">
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 border border-red-200 text-[10px] font-mono font-bold text-red-800 uppercase tracking-widest mb-2">
+            <ShieldCheck size={12} className="text-red-700" />
+            <span>Personnel Docket Registered</span>
+          </div>
+
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+            {generatedUser.name}
+          </h1>
+          <p className="text-slate-500 font-medium text-xs mt-1 max-w-md mx-auto">
             {generatedUser.status === 'PENDING_APPROVAL'
-              ? 'Request submitted to system admin for final verification.'
-              : 'Personnel successfully deployed to field operations.'}
+              ? 'Verification request dispatched to HQ management desk for activation.'
+              : 'Field representative authorized for mobile inspection duty and punch-ins.'}
           </p>
 
-          <div className="w-full space-y-4 mb-8">
-            <div className="bg-slate-50 p-4 rounded-2xl flex items-center justify-between group border border-slate-100">
-              <div className="text-left">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">User ID</span>
-                <p className="text-lg font-mono font-black text-indigo-600 uppercase tracking-widest">{generatedUser.id}</p>
+          {/* Credentials Display Box */}
+          <div className="mt-8 space-y-3 max-w-lg mx-auto text-left">
+            <div className="bg-[#FBFBF9] p-4 rounded-2xl border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block">
+                  Security Badge ID
+                </span>
+                <p className="text-lg font-mono font-black text-red-700 tracking-wider">
+                  {generatedUser.id}
+                </p>
               </div>
-              <button type="button" onClick={() => navigator.clipboard.writeText(generatedUser.id)} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-indigo-600">
-                <Copy size={18} />
+              <button
+                type="button"
+                onClick={() => copyToClipboard(generatedUser.id, 'id')}
+                className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Copy size={13} />
+                <span>{copiedKey === 'id' ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-2xl flex items-center justify-between group border border-slate-100">
-              <div className="text-left">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Password</span>
-                <p className="text-lg font-mono font-black text-slate-950 tracking-widest">{generatedUser.password}</p>
+            <div className="bg-[#FBFBF9] p-4 rounded-2xl border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block">
+                  Numeric Passkey (8-Digit)
+                </span>
+                <p className="text-lg font-mono font-black text-slate-900 tracking-wider">
+                  {generatedUser.password}
+                </p>
               </div>
-              <button type="button" onClick={() => navigator.clipboard.writeText(generatedUser.password!)} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-slate-900">
-                <Copy size={18} />
+              <button
+                type="button"
+                onClick={() => copyToClipboard(generatedUser.password!, 'pass')}
+                className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Copy size={13} />
+                <span>{copiedKey === 'pass' ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 w-full">
+          {/* Action Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto mt-8">
             <button
               type="button"
               onClick={handlePrint}
-              className="py-5 bg-slate-100 text-slate-900 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-slate-200 transition-all flex items-center justify-center"
+              className="py-3.5 px-4 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-bold rounded-xl text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Printer size={18} className="mr-3" />
-              Print Slip
+              <Printer size={15} />
+              <span>Print Officer Slip</span>
             </button>
             <button
               type="button"
               onClick={resetForm}
-              className="py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-indigo-700 transition-all flex items-center justify-center shadow-xl shadow-indigo-100"
+              className="py-3.5 px-4 bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-black rounded-xl text-xs uppercase tracking-wider shadow-md shadow-red-700/20 transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Plus size={18} className="mr-3" />
-              New Registration
+              <Plus size={15} className="text-amber-300" />
+              <span>Register Next Officer</span>
             </button>
           </div>
+
         </div>
       </div>
     );
   }
 
+  // MAIN REGISTRATION FORM
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-black text-slate-900 uppercase">Register Deployment</h1>
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-1">Personnel deployment authorization protocol.</p>
+    <div className="max-w-4xl mx-auto space-y-6 px-1 sm:px-2 pb-12">
+
+      {/* Header Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200/90 p-6 rounded-3xl shadow-xs">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldAlert size={16} className="text-red-700" />
+            <span className="text-[10px] font-mono font-bold text-amber-800 uppercase tracking-widest">
+              Personnel Deployment Registry
+            </span>
+          </div>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+            Register Field Staff
+          </h1>
+          <p className="text-xs text-slate-500 font-medium mt-0.5">
+            Issue verified credentials for mobile inspection and duty attendance tracking.
+          </p>
+        </div>
+
+        <div className="px-3 py-1.5 rounded-xl bg-[#FBFBF9] border border-slate-200 text-[10px] font-mono font-bold text-slate-600 uppercase flex items-center gap-1.5 self-start sm:self-auto">
+          <Lock size={12} className="text-red-700" />
+          <span>PSARA Compliant (18+ Verified)</span>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
-          {error && (
-            <div className="p-4 bg-red-50 text-red-600 text-[10px] font-black rounded-xl border border-red-100 uppercase tracking-widest">
-              {error}
-            </div>
-          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Full Legal Name</label>
+        {error && (
+          <div className="p-4 bg-red-50 text-red-700 text-xs font-bold rounded-2xl border border-red-200 flex items-center gap-2">
+            <BadgeAlert size={16} className="text-red-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+            {/* Left Column: Form Fields (7 cols) */}
+            <div className="lg:col-span-7 space-y-4">
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                  Full Legal Name <span className="text-red-600">*</span>
+                </label>
                 <div className="relative">
-                  <User className="absolute left-4 top-4 text-slate-300" size={18} />
+                  <User className="absolute left-3.5 top-3 text-amber-600" size={16} />
                   <input
                     required
+                    type="text"
                     value={formData.name}
-                    onChange={(e) => setFormData((p: any) => ({ ...p, name: e.target.value }))}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none text-slate-950 font-black tracking-tight"
-                    placeholder="Personnel Full Name"
+                    onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-sm text-slate-900 font-bold focus:outline-none focus:ring-4 focus:ring-red-700/10 focus:border-red-700 focus:bg-white transition"
+                    placeholder="e.g. SURENDRA SINGH RATHORE"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Mobile Contact (10 Digits)</label>
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                  Mobile Number (10 Digits) <span className="text-red-600">*</span>
+                </label>
                 <div className="relative">
-                  <Phone className="absolute left-4 top-4 text-slate-300" size={18} />
+                  <Phone className="absolute left-3.5 top-3 text-amber-600" size={16} />
                   <input
                     required
                     type="tel"
                     value={formData.phone}
-                    onChange={(e) => setFormData((p: any) => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none text-slate-950 font-black tracking-tight"
-                    placeholder="98XXXXXXXX"
+                    onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-sm text-slate-900 font-mono font-bold focus:outline-none focus:ring-4 focus:ring-red-700/10 focus:border-red-700 focus:bg-white transition"
+                    placeholder="98260XXXXX"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Date of Birth</label>
-                <div className="relative">
-                  <Calendar className="absolute left-4 top-4 text-slate-300" size={18} />
-                  <input
-                    required
-                    type="date"
-                    value={formData.dob}
-                    onChange={(e) => setFormData((p: any) => ({ ...p, dob: e.target.value }))}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none text-slate-950 font-black tracking-tight"
-                  />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                    Date of Birth (18+) <span className="text-red-600">*</span>
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3.5 top-3 text-amber-600" size={16} />
+                    <input
+                      required
+                      type="date"
+                      max={maxAllowedDob}
+                      value={formData.dob}
+                      onChange={(e) => setFormData((p) => ({ ...p, dob: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs text-slate-900 font-bold focus:outline-none focus:ring-4 focus:ring-red-700/10 focus:border-red-700 focus:bg-white transition"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Assigned Role</label>
-                <div className="relative">
-                  <Shield className="absolute left-4 top-4 text-slate-300" size={18} />
-                  <select
-                    disabled={currentUser?.role !== Role.ADMIN}
-                    value={formData.role}
-                    onChange={(e) => setFormData((p: any) => ({ ...p, role: e.target.value as Role }))}
-                    className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none text-slate-950 font-black tracking-tight appearance-none"
-                  >
-                    <option value={Role.FIELD_REP}>FIELD REPRESENTATIVE</option>
-                    {currentUser?.role === Role.ADMIN && (
-                      <option value={Role.SR_FIELD_EXECUTIVE}>SR. FIELD EXECUTIVE</option>
-                    )}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block text-center">Identity Snapshot</label>
-               {formData.photo ? (
-                 <div className="relative aspect-square w-full max-w-[220px] mx-auto rounded-[2rem] overflow-hidden border-4 border-white shadow-2xl">
-                    <img src={formData.photo} alt="User" className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setFormData((p: any) => ({ ...p, photo: '' }))}
-                      className="absolute top-3 right-3 p-2 bg-red-600 text-white rounded-xl shadow-lg hover:bg-red-700 transition-colors"
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                    Deployment Role
+                  </label>
+                  <div className="relative">
+                    <Shield className="absolute left-3.5 top-3 text-amber-600" size={16} />
+                    <select
+                      disabled={currentUser?.role !== Role.ADMIN}
+                      value={formData.role}
+                      onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as Role }))}
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs text-slate-900 font-bold uppercase tracking-wider focus:outline-none focus:ring-4 focus:ring-red-700/10 focus:border-red-700 focus:bg-white transition cursor-pointer appearance-none"
                     >
-                      <Plus className="rotate-45" size={16} />
-                    </button>
-                 </div>
-               ) : (
-                 <button
-                    type="button"
-                    onClick={startCamera}
-                    className="flex flex-col items-center justify-center aspect-square w-full max-w-[220px] mx-auto border-2 border-dashed border-slate-200 rounded-[2rem] hover:border-indigo-400 hover:bg-slate-50 transition-all group"
-                 >
-                    <div className="p-6 bg-slate-100 rounded-2xl group-hover:bg-indigo-50 transition-colors mb-3">
-                      <Camera size={36} className="text-slate-300 group-hover:text-indigo-600" />
-                    </div>
-                    <span className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em]">Open Camera Viewfinder</span>
-                 </button>
-               )}
+                      <option value={Role.FIELD_REP}>Field Representative</option>
+                      {currentUser?.role === Role.ADMIN && (
+                        <option value={Role.SR_FIELD_EXECUTIVE}>Sr. Field Executive</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
             </div>
+
+            {/* Right Column: Identity Snapshot Frame (5 cols) */}
+            <div className="lg:col-span-5 flex flex-col items-center text-center p-4 bg-[#FBFBF9] border border-slate-200 rounded-2xl space-y-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-700">
+                  Officer Snapshot
+                </span>
+                <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">
+                  Required *
+                </span>
+              </div>
+
+              {formData.photo ? (
+                <div className="relative w-40 h-40 rounded-2xl overflow-hidden border-2 border-amber-400 shadow-md">
+                  <img src={formData.photo} alt="Officer Preview" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setFormData((p) => ({ ...p, photo: '' }))}
+                    className="absolute top-2 right-2 p-1.5 bg-red-700 hover:bg-red-800 text-white rounded-lg shadow-xs transition cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startCamera}
+                  className="w-40 h-40 border-2 border-dashed border-red-300 bg-red-50/20 hover:border-red-600 hover:bg-red-50/50 rounded-2xl flex flex-col items-center justify-center p-4 transition group cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-red-700 group-hover:scale-105 shadow-xs mb-2 transition">
+                    <Camera size={22} />
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700 group-hover:text-red-700">
+                    Capture Live Photo
+                  </span>
+                  <span className="text-[8px] text-slate-400 mt-0.5">PSARA Badge Spec</span>
+                </button>
+              )}
+
+              <p className="text-[10px] text-slate-400 font-medium leading-relaxed max-w-[200px]">
+                Must capture a frontal identity photo for official badge issuance.
+              </p>
+            </div>
+
           </div>
         </div>
 
+        {/* Submit Execution Button */}
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full bg-slate-950 hover:bg-black text-white font-black py-6 rounded-[2rem] shadow-2xl transition-all flex items-center justify-center group tracking-[0.2em] uppercase text-sm disabled:opacity-50"
+          className="w-full bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-black py-4 px-6 rounded-2xl text-xs uppercase tracking-widest shadow-md shadow-red-700/20 hover:shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >
-          {isLoading ? <Loader2 className="animate-spin mr-3" size={20} /> : <Key size={20} className="mr-3 text-indigo-400" />}
-          {currentUser?.role === Role.ADMIN ? 'AUTHORIZE & CREATE RECORD' : 'SUBMIT DEPLOYMENT REQUEST'}
+          {isLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin text-amber-300" />
+              <span>Registering Security Docket...</span>
+            </>
+          ) : (
+            <>
+              <Key size={15} className="text-amber-300" />
+              <span>{currentUser?.role === Role.ADMIN ? 'Authorize & Issue Docket' : 'Submit for HQ Approval'}</span>
+            </>
+          )}
         </button>
+
       </form>
 
-      {/* Live Camera Modal */}
+      {/* Live Viewfinder Modal */}
       {cameraActive && (
-        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-950 p-4">
-           <div className="relative w-full max-w-md aspect-square bg-slate-900 rounded-[3rem] overflow-hidden shadow-2xl border border-slate-800">
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-xs p-4">
+          <div className="relative w-full max-w-sm aspect-square bg-black rounded-3xl overflow-hidden border-2 border-amber-400 shadow-2xl">
+            <button
+              type="button"
+              onClick={stopCamera}
+              className="absolute top-4 right-4 z-10 p-2.5 bg-black/60 hover:bg-red-700 text-white rounded-xl transition cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover scale-x-[-1]"
+            />
+
+            {/* Target Reticle */}
+            <div className="absolute inset-8 border-2 border-dashed border-amber-400/70 rounded-2xl pointer-events-none" />
+
+            <div className="absolute bottom-6 inset-x-0 flex justify-center">
               <button
                 type="button"
-                onClick={stopCamera}
-                className="absolute top-6 right-6 z-10 p-3 bg-white/10 hover:bg-red-600 text-white rounded-2xl backdrop-blur-md transition-all"
+                onClick={capturePhoto}
+                className="w-16 h-16 rounded-full bg-white border-4 border-amber-400 shadow-lg flex items-center justify-center active:scale-95 transition cursor-pointer"
               >
-                 <X size={20} />
+                <div className="w-12 h-12 rounded-full bg-red-700 flex items-center justify-center text-white">
+                  <CameraIcon size={20} />
+                </div>
               </button>
+            </div>
 
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover scale-x-[-1]"
-              />
+            <canvas ref={canvasRef} className="hidden" />
+          </div>
 
-              <div className="absolute bottom-10 left-0 right-0 flex items-center justify-center">
-                 <button
-                  type="button"
-                  onClick={capturePhoto}
-                  className="w-20 h-20 rounded-full bg-white border-8 border-slate-200 shadow-2xl flex items-center justify-center active:scale-90 transition-all group"
-                 >
-                    <div className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center text-white">
-                       <CameraIcon size={24} />
-                    </div>
-                 </button>
-              </div>
-
-              <canvas ref={canvasRef} className="hidden" />
-           </div>
-
-           <p className="mt-8 text-indigo-400 font-black text-[10px] uppercase tracking-[0.3em] animate-pulse">Align face within center frame</p>
+          <p className="mt-4 text-amber-300 font-mono font-bold text-[10px] uppercase tracking-widest">
+            Align face within frame &bull; Click red button to capture
+          </p>
         </div>
       )}
+
     </div>
   );
 };

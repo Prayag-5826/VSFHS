@@ -12,7 +12,10 @@ import {
   ShieldCheck,
   Users,
   PhoneCall,
-  FileText // 👈 Imported for the Quotation Generator navigation link
+  FileText,
+  ExternalLink,
+  ShieldAlert,
+  Globe
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Role } from '../types';
@@ -29,14 +32,14 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon: Icon, label, active
   <Link
     to={to}
     onClick={onClick}
-    className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+    className={`flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 ${
       active
-        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100'
-        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+        ? 'bg-red-700 text-white shadow-xs font-black'
+        : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 font-bold'
     }`}
   >
-    <Icon size={20} />
-    <span className="font-bold text-sm uppercase tracking-tight">{label}</span>
+    <Icon size={17} className={active ? 'text-amber-300' : 'text-slate-400'} />
+    <span className="text-xs uppercase tracking-wider">{label}</span>
   </Link>
 );
 
@@ -51,54 +54,67 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     navigate('/login');
   };
 
-  // Re-engineered navigation schema including Instant Proposal Generator
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
     { to: '/add-visit', icon: PlusCircle, label: 'Add Visit', roles: [Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
     { to: '/visits', icon: ClipboardList, label: 'Visit Logs', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
     { to: '/follow-ups', icon: PhoneCall, label: 'Follow-Ups', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
-    { to: '/create-quotation', icon: FileText, label: 'Quotation', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] }, // 👈 Integrated Quotation Generator!
+    { to: '/create-quotation', icon: FileText, label: 'Proposal Desk', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE, Role.FIELD_REP] },
     { to: '/add-user', icon: UserPlus, label: 'Register Staff', roles: [Role.ADMIN, Role.SR_FIELD_EXECUTIVE] },
     { to: '/manage-users', icon: Users, label: 'Staff Roster', roles: [Role.ADMIN] },
-    { to: '/reports', icon: BarChart3, label: 'Reports', roles: [Role.ADMIN] },
-    { to: '/settings', icon: SettingsIcon, label: 'Settings', roles: [Role.ADMIN] },
+    { to: '/reports', icon: BarChart3, label: 'Audit & Reports', roles: [Role.ADMIN] },
+    { to: '/settings', icon: SettingsIcon, label: 'Portal Config', roles: [Role.ADMIN] },
   ];
 
   const filteredNavItems = navItems.filter(item => item.roles.includes(user?.role as Role));
 
+  const websiteDeskUrl =
+    typeof window !== 'undefined' && window.location.hostname.includes('vidhyasecurityforce.in')
+      ? 'https://vidhyasecurityforce.in/admin'
+      : 'http://localhost:3000/admin';
+
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-[#FBFBF9] text-slate-900 antialiased selection:bg-red-700 selection:text-white">
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
+      {/* Main Executive Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-out lg:translate-x-0 lg:static lg:inset-0
+        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col justify-between shadow-xs
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="h-full flex flex-col">
-          <div className="p-8">
-            <div className="flex flex-col items-center text-center">
-              {settings.logo ? (
-                <img src={settings.logo} alt="Logo" className="w-16 h-16 object-contain mb-4" />
-              ) : (
-                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white mb-4 shadow-xl ${user?.role === Role.ADMIN ? 'bg-slate-900' : 'bg-indigo-600'}`}>
-                  <ShieldCheck size={32} />
-                </div>
-              )}
+        <div className="flex flex-col h-full overflow-hidden">
+
+          {/* Brand Header */}
+          <div className="px-5 py-4 border-b border-slate-100 shrink-0">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-2xl bg-white border-2 border-amber-400 p-1 flex items-center justify-center shadow-md shadow-red-900/10 shrink-0">
+                <img
+                  src={settings.logo || '/assets/img/logo/logo.png'}
+                  alt="VSF Logo"
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://vidhyasecurityforce.in/assets/img/logo/logo.png';
+                  }}
+                />
+              </div>
               <div className="min-w-0">
-                <h1 className="text-sm font-black text-slate-900 leading-tight uppercase tracking-tight">
-                  {settings.companyName.split(' ').slice(0, 2).join(' ')}
+                <h1 className="text-xs font-black text-red-700 uppercase tracking-wider truncate">
+                  Vidhya Security
                 </h1>
-                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-[0.2em] mt-1">Management Pro</p>
+                <span className="inline-block font-mono text-[9px] font-bold text-amber-800 uppercase tracking-widest">
+                  Field Operations
+                </span>
               </div>
             </div>
           </div>
 
-          <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto">
+          {/* Navigation Links */}
+          <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
             {filteredNavItems.map((item) => (
               <SidebarItem
                 key={item.to}
@@ -109,60 +125,95 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 onClick={() => setSidebarOpen(false)}
               />
             ))}
+
+            {/* Cross-Link: Return to Web Admin Desk */}
+            {user?.role === Role.ADMIN && (
+              <a
+                href={websiteDeskUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-slate-600 hover:bg-amber-50 hover:text-amber-950 transition border border-transparent hover:border-amber-200 mt-2 font-bold text-xs uppercase tracking-wider"
+              >
+                <div className="flex items-center space-x-3">
+                  <Globe size={17} className="text-amber-600" />
+                  <span>Lead Intake Desk</span>
+                </div>
+                <ExternalLink size={13} className="text-amber-600" />
+              </a>
+            )}
           </nav>
 
-          <div className="p-4 mt-auto">
-            <div className="bg-slate-50 p-4 rounded-2xl flex items-center space-x-3 mb-4 border border-slate-100">
-              <img
-                src={user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name}`}
-                alt="Profile"
-                className="w-10 h-10 rounded-xl bg-white p-0.5 border border-slate-200 object-cover"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-black text-slate-900 truncate uppercase">{user?.name}</p>
-                <p className="text-[9px] text-indigo-500 font-mono font-bold">{user?.id}</p>
+          {/* Compact User Profile & Direct Sign Out Footer */}
+          <div className="p-3 border-t border-slate-100 bg-[#FBFBF9] shrink-0">
+            <div className="bg-white p-2.5 rounded-xl flex items-center justify-between border border-slate-200/80 shadow-xs">
+              <div className="flex items-center space-x-2.5 min-w-0">
+                <img
+                  src={user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name}`}
+                  alt="Profile"
+                  className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 object-cover p-0.5 shrink-0"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = 'https://vidhyasecurityforce.in/assets/img/logo/logo.png';
+                  }}
+                />
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-slate-900 truncate uppercase leading-tight">{user?.name}</p>
+                  <p className="text-[9px] text-red-700 font-mono font-bold uppercase truncate">{user?.role?.replace('_', ' ')}</p>
+                </div>
               </div>
+
+              <button
+                onClick={handleLogout}
+                title="Sign Out"
+                className="p-2 text-slate-400 hover:text-red-700 hover:bg-red-50 active:bg-red-100 rounded-lg transition shrink-0 cursor-pointer"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors font-bold text-xs uppercase tracking-widest"
-            >
-              <LogOut size={16} />
-              <span>TERMINATE SESSION</span>
-            </button>
           </div>
+
         </div>
       </aside>
 
+      {/* Main View Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-10 shrink-0">
+
+        {/* Top Header */}
+        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 shadow-xs z-20">
           <button
-            className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-xl"
+            className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
             onClick={() => setSidebarOpen(true)}
           >
-            <Menu size={24} />
+            <Menu size={20} />
           </button>
 
           <div className="hidden md:flex flex-col">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active System</span>
-            <span className="text-sm font-black text-slate-900 uppercase">{settings.companyName}</span>
+            <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-widest">Central Station</span>
+            <span className="text-xs font-black text-slate-900 uppercase tracking-tight truncate max-w-md">
+              {settings.companyName}
+            </span>
           </div>
 
-          <div className="flex items-center space-x-6">
-             <div className="hidden lg:flex flex-col items-end">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Support Line</span>
-                <span className="text-xs font-black text-indigo-600">{settings.contactNo}</span>
-             </div>
-             <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-                <Users size={20} />
-             </div>
+          <div className="flex items-center space-x-3 sm:space-x-4">
+            <div className="hidden sm:flex flex-col items-end">
+              <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-widest">Emergency Control</span>
+              <span className="text-xs font-mono font-bold text-red-700">+91 {settings.contactNo}</span>
+            </div>
+
+            <div className="px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-mono font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldAlert size={12} className="text-red-700" />
+              <span>PSARA MP Licensed</span>
+            </div>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6 lg:p-10">
+        {/* Dynamic Children Content */}
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>
+
       </div>
     </div>
   );
 };
+
+export default Layout;

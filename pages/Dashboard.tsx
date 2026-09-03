@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, ShieldCheck, MapPin, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Visit, Role, Attendance, Lead } from '../types';
 import { api } from '../services/apiService';
@@ -47,8 +47,10 @@ export const Dashboard: React.FC = () => {
         setAttendance(attendanceData[0]);
       }
     } catch (err: any) {
-      console.error("Core metrics sync protocol error:", err);
-      setError(err.message || "Cloud pipeline data synchronization error.");
+      if (!err?.message?.includes('aborted') && err.name !== 'AbortError') {
+        console.error("Core metrics sync protocol error:", err);
+        setError(err.message || "Cloud pipeline data synchronization error.");
+      }
     } finally {
       setLoading(false);
     }
@@ -61,7 +63,7 @@ export const Dashboard: React.FC = () => {
   const handleProfessionalPunchIn = async () => {
     if (!user) return;
     setPunchLoading(true);
-    setLocationStatus("Verifying secure GPS matrix...");
+    setLocationStatus("Verifying secure GPS coordinates...");
 
     if (!navigator.geolocation) {
       alert("GPS Error: Geolocation tracking is not supported by this device hardware.");
@@ -73,7 +75,7 @@ export const Dashboard: React.FC = () => {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         setCoordinates({ lat: position.coords.latitude, lng: position.coords.longitude });
-        setLocationStatus("GPS Location Verified. Activating camera stream...");
+        setLocationStatus("GPS Location Verified. Activating security camera stream...");
         setAttendanceStep('CAPTURE');
         setPunchLoading(false);
       },
@@ -117,29 +119,41 @@ export const Dashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
-        <Loader2 className="animate-spin text-indigo-600" size={44} />
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Establishing Secure Session...</p>
+      <div className="flex flex-col items-center justify-center min-h-[55vh] space-y-4 bg-[#FBFBF9]">
+        <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center shadow-xs">
+          <Loader2 className="animate-spin text-red-700" size={26} />
+        </div>
+        <div className="text-center space-y-1">
+          <p className="text-[11px] font-black text-red-800 uppercase tracking-widest animate-pulse">
+            Vidhya Security Force
+          </p>
+          <p className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+            Authorizing Secure Command Session...
+          </p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] p-8 text-center max-w-md mx-auto space-y-4">
-        <div className="w-16 h-16 bg-red-100 text-red-600 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-          <AlertTriangle size={32} />
+      <div className="flex flex-col items-center justify-center min-h-[55vh] p-8 text-center max-w-md mx-auto space-y-5 bg-white border-2 border-red-100 rounded-3xl shadow-sm mt-6">
+        <div className="w-16 h-16 bg-red-50 text-red-700 border border-red-200 rounded-2xl flex items-center justify-center shadow-xs">
+          <AlertTriangle size={30} />
         </div>
-        <div className="space-y-1">
-          <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">Sync Error Occurred</h2>
-          <p className="text-xs text-slate-500 font-bold">{error}</p>
+        <div className="space-y-1.5">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 border border-red-200 text-[10px] font-mono font-bold text-red-800 uppercase tracking-widest">
+            <span>Data Sync Alert</span>
+          </div>
+          <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">Connection Interrupted</h2>
+          <p className="text-xs text-slate-500 font-medium leading-relaxed">{error}</p>
         </div>
         <button
           onClick={() => fetchDashboardTelemetry()}
-          className="w-full bg-slate-900 hover:bg-black text-white font-black py-3.5 rounded-2xl text-xs uppercase tracking-widest transition-all flex items-center justify-center space-x-2 shadow-md active:scale-95"
+          className="w-full bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-black py-3.5 rounded-xl text-xs uppercase tracking-widest transition flex items-center justify-center space-x-2 shadow-md shadow-red-700/20 active:scale-98 cursor-pointer"
         >
-          <RefreshCw size={14} />
-          <span>Retry Session Connection</span>
+          <RefreshCw size={14} className="text-amber-300" />
+          <span>Retry Session Sync</span>
         </button>
       </div>
     );
@@ -169,7 +183,7 @@ export const Dashboard: React.FC = () => {
     if (day) day.pitches++;
   });
 
-  // 🔀 DYNAMIC ROUTER SWITCH
+  // Dynamic View Switch
   if (user?.role === Role.ADMIN) {
     return (
       <AdminDashboard

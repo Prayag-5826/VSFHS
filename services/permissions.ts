@@ -1,27 +1,24 @@
-import { Camera } from '@capacitor/camera';
-import { Geolocation } from '@capacitor/geolocation';
+import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { Geolocation } from '@capacitor/geolocation';
 
 export const requestAppPermissions = async () => {
-  try {
-    // 1. Request Camera Access
-    const cameraStatus = await Camera.checkPermissions();
-    if (cameraStatus.camera !== 'granted') {
-      await Camera.requestPermissions({ permissions: ['camera'] });
-    }
+  // Only execute native plugin checks on actual Android/iOS devices
+  if (!Capacitor.isNativePlatform()) {
+    return;
+  }
 
-    // 2. Request High-Accuracy GPS Location Access
+  try {
     const geoStatus = await Geolocation.checkPermissions();
     if (geoStatus.location !== 'granted') {
-      await Geolocation.requestPermissions({ permissions: ['location'] });
+      await Geolocation.requestPermissions();
     }
 
-    // 3. Request Push Notification Access
-    const notifyStatus = await PushNotifications.checkPermissions();
-    if (notifyStatus.receive !== 'granted') {
+    const pushStatus = await PushNotifications.checkPermissions();
+    if (pushStatus.receive === 'prompt') {
       await PushNotifications.requestPermissions();
     }
-  } catch (error) {
-    console.log('Permissions check or request skipped:', error);
+  } catch (err) {
+    console.warn('Native permission request notice:', err);
   }
 };

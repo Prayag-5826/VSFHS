@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Lock, User as UserIcon, ShieldAlert, ArrowRight, ShieldCheck } from 'lucide-react';
-import { api } from '../services/apiService';
+import { Lock, UserCheck, ShieldAlert, ArrowRight, ShieldCheck, ArrowLeft } from 'lucide-react';
 
 const AdminLogin: React.FC = () => {
   const [userId, setUserId] = useState('');
@@ -19,141 +18,148 @@ const AdminLogin: React.FC = () => {
     setError('');
 
     try {
-      // 1. Authenticate with custom X-Gateway-Portal to verify admin role permissions
-      const result = await api.request('/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Gateway-Portal': 'MASTER'
-        },
-        body: JSON.stringify({ username: userId, password })
-      });
-
-      // 2. Inject profile context details directly into universal auth state container
-      if (result && result.access_token) {
-        // Mocking the context state payload mapping
-        const loginSuccess = await login(userId, password);
-        if (loginSuccess.success) {
-          navigate('/');
-        } else {
-          setError(loginSuccess.message || 'Administrative Access Denied');
-        }
+      const result = await login(userId, password);
+      if (result.success) {
+        navigate('/');
+      } else {
+        setError(result.message || 'Administrative privilege verification failed.');
       }
     } catch (err: any) {
-      setError(err.message || 'System connection failure.');
+      setError('HQ Server connection failure. Please retry.');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#090d16] p-6 text-slate-200 antialiased selection:bg-indigo-600 selection:text-white relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#FBFBF9] p-4 sm:p-6 text-slate-800 antialiased selection:bg-red-700 selection:text-white relative overflow-hidden font-sans">
 
-      {/* Subtle Background Radial Accents */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-950/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-72 h-72 bg-slate-900/40 rounded-full blur-[80px] pointer-events-none" />
+      {/* Brand Ambient Glows: Red & Gold Radiant Halos */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] bg-red-100/50 rounded-full blur-[130px] pointer-events-none" />
+      <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-amber-200/40 rounded-full blur-[100px] pointer-events-none" />
 
-      <div className="w-full max-w-[440px] z-10 space-y-8">
+      <div className="w-full max-w-[420px] z-10 space-y-6">
 
-        {/* Top Branding Block */}
-        <div className="flex flex-col items-center text-center space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-center p-2.5 shadow-xl shadow-black/40">
+        {/* Master Gateway Header Block */}
+        <div className="flex flex-col items-center text-center space-y-3">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-white border-2 border-amber-400 p-2 shadow-xl shadow-red-900/10 flex items-center justify-center transition-transform hover:scale-105 duration-300">
             {settings.logo ? (
               <img src={settings.logo} className="w-full h-full object-contain" alt="VSF Logo" />
             ) : (
-              <ShieldAlert className="text-indigo-400" size={26} />
+              <img src="/logo.png" className="w-full h-full object-contain" alt="VSF Logo" />
             )}
           </div>
-          <div className="space-y-1">
-            <h1 className="text-[11px] font-black uppercase tracking-[0.25em] text-white">
-              {settings.companyName}
+
+          <div className="space-y-1.5 px-2">
+            <h1 className="text-xs sm:text-[13px] font-black uppercase tracking-wider text-red-700 font-heading">
+              {settings.companyName || 'VIDHYA SECURITY FORCE & HOUSEKEEPING SERVICES'}
             </h1>
-            <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.15em]">
-              HQ Core Security Control
-            </p>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-300 text-[10px] font-mono font-bold text-amber-900 uppercase tracking-widest shadow-xs">
+              <ShieldAlert size={12} className="text-red-600" />
+              <span>Executive HQ Master Terminal</span>
+            </div>
           </div>
         </div>
 
-        {/* Central Auth Container Card */}
-        <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/60 p-8 rounded-[2rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] space-y-6">
+        {/* Master Auth Container Card */}
+        <div className="bg-white border-2 border-amber-100 p-7 sm:p-8 rounded-3xl shadow-[0_20px_45px_-15px_rgba(185,28,28,0.08)] space-y-5 relative">
 
-          <div className="text-center space-y-1.5 border-b border-slate-800/60 pb-5">
-            <h2 className="text-xl font-black text-white tracking-tight uppercase">
-              Master Authentication
+          <div className="text-center space-y-1 border-b border-slate-100 pb-4">
+            <h2 className="text-lg font-black text-slate-900 tracking-tight uppercase flex items-center justify-center gap-2">
+              <span>Master Authentication</span>
             </h2>
-            <p className="text-slate-400 text-xs font-medium">
-              Enter secure credentials to unlock system access portal
+            <p className="text-slate-500 text-xs font-medium">
+              Elevated directorial access &amp; control console
             </p>
           </div>
 
           {error && (
-            <div className="p-3.5 bg-red-950/20 border border-red-900/50 text-red-400 text-[10px] font-black rounded-xl uppercase tracking-widest flex items-center space-x-2.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+            <div className="p-3.5 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl flex items-center space-x-2 shadow-xs animate-shake">
+              <div className="w-1.5 h-1.5 rounded-full bg-red-600 shrink-0" />
               <span className="break-all">{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
 
             {/* Input Element: Operational ID */}
-            <div className="space-y-2">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] ml-1">
-                Operational ID
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Administrator Identifier / Email
               </label>
               <div className="relative group">
-                <UserIcon className="absolute left-4 top-4 text-slate-500 transition-colors group-focus-within:text-indigo-400" size={16} />
+                <UserCheck className="absolute left-3.5 top-3.5 text-amber-600 transition-colors group-focus-within:text-red-700" size={17} />
                 <input
                   type="text"
                   required
                   autoFocus
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
-                  className="block w-full pl-11 pr-4 py-3.5 bg-slate-950/50 border border-slate-800 focus:border-indigo-500 text-white font-bold tracking-tight outline-none rounded-xl transition-all placeholder:text-slate-700 text-sm focus:ring-4 focus:ring-indigo-500/5"
-                  placeholder="VSFHS-ADMIN"
+                  className="block w-full pl-10 pr-3.5 py-3 bg-[#FBFBF9] border border-slate-200 focus:border-red-700 focus:bg-white text-slate-900 font-semibold tracking-tight outline-none rounded-xl transition-all placeholder:text-slate-400 text-xs sm:text-sm focus:ring-4 focus:ring-red-700/10"
+                  placeholder="VSFHS-ADMININDORE"
                 />
               </div>
             </div>
 
-            {/* Input Element: Secure Passkey */}
-            <div className="space-y-2">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] ml-1">
-                Secure Passkey
+            {/* Input Element: Master Passkey */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Master Security Passkey
               </label>
               <div className="relative group">
-                <Lock className="absolute left-4 top-4 text-slate-500 transition-colors group-focus-within:text-indigo-400" size={16} />
+                <Lock className="absolute left-3.5 top-3.5 text-amber-600 transition-colors group-focus-within:text-red-700" size={17} />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-11 pr-4 py-3.5 bg-slate-950/50 border border-slate-800 focus:border-indigo-500 text-white font-bold tracking-tight outline-none rounded-xl transition-all placeholder:text-slate-700 text-sm focus:ring-4 focus:ring-indigo-500/5"
+                  className="block w-full pl-10 pr-3.5 py-3 bg-[#FBFBF9] border border-slate-200 focus:border-red-700 focus:bg-white text-slate-900 font-semibold tracking-tight outline-none rounded-xl transition-all placeholder:text-slate-400 text-xs sm:text-sm focus:ring-4 focus:ring-red-700/10"
                   placeholder="••••••••••••"
                 />
               </div>
             </div>
 
-            {/* Main Submission Call To Action */}
+            {/* Main Action Button: VSF Crimson Red with Gold Accent */}
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-6 rounded-xl transition-all flex items-center justify-center active:scale-[0.98] disabled:opacity-40 text-xs uppercase tracking-[0.15em] shadow-lg shadow-indigo-600/10 mt-2"
+              className="w-full bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-black py-3.5 px-5 rounded-xl transition-all flex items-center justify-center active:scale-[0.99] disabled:opacity-50 text-xs uppercase tracking-widest shadow-lg shadow-red-700/25 cursor-pointer mt-2"
             >
               {isLoading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Initialize Secure Session</span>
-                  <ArrowRight size={14} className="ml-2 text-indigo-200" />
+                  <span>Unlock Master Console</span>
+                  <ArrowRight size={15} className="ml-2 text-amber-300" />
                 </>
               )}
             </button>
           </form>
+
+          {/* Statutory Subtext matching the Hindi Navy Blue emblem banner */}
+          <div className="pt-2 text-center">
+            <span className="text-[10px] font-mono font-bold text-[#1E3A8A] block">
+              Direct Agency Control &bull; Indore HQ &bull; संरक्षण एवं सुरक्षा
+            </span>
+          </div>
         </div>
 
-        {/* Footer Audit Message */}
-        <div className="flex items-center justify-center space-x-2 text-[9px] font-mono font-bold text-slate-600 uppercase tracking-widest">
-          <ShieldCheck size={12} className="text-slate-500" />
-          <span>Restricted Area // Encrypted Connection Hub</span>
+        {/* Footer Navigation: Return to Officer Login */}
+        <div className="text-center flex flex-col items-center space-y-3 pt-2">
+          <div className="flex items-center justify-center space-x-1.5 text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest">
+            <ShieldCheck size={13} className="text-red-700" />
+            <span>Restricted Directorial Gateway</span>
+          </div>
+
+          <Link
+            to="/login"
+            className="group flex items-center space-x-2 px-4 py-2 bg-white hover:bg-amber-50/60 rounded-xl border border-amber-200 hover:border-red-300 transition-all shadow-xs"
+          >
+            <ArrowLeft size={14} className="text-red-700 group-hover:-translate-x-0.5 transition-transform" />
+            <span className="text-[10px] font-black text-slate-700 group-hover:text-red-700 uppercase tracking-wider transition-colors">
+              Return to Officer Portal
+            </span>
+          </Link>
         </div>
 
       </div>
