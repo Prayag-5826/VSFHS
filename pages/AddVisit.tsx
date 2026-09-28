@@ -46,6 +46,17 @@ const INTERACTION_OUTCOMES: { value: InteractionOutcome; label: string }[] = [
   { value: 'NOT_INTERESTED', label: 'Not Interested at Present' }
 ];
 
+interface AccountOption {
+  id: string;
+  isRealLead: boolean;
+  companyName: string;
+  contactPerson: string;
+  phone: string;
+  address?: string;
+  category?: string;
+  estimatedValue?: number | string;
+}
+
 type FormStep = 'VISIT_TYPE' | 'CLIENT_DETAILS' | 'MEETING_OUTCOME' | 'VERIFICATION';
 const STEPS: FormStep[] = ['VISIT_TYPE', 'CLIENT_DETAILS', 'MEETING_OUTCOME', 'VERIFICATION'];
 
@@ -59,8 +70,9 @@ export const AddVisit: React.FC = () => {
   const [locationError, setLocationError] = useState('');
 
   const [visitType, setVisitType] = useState<'new' | 'followup'>('new');
-  const [activeLeads, setActiveLeads] = useState<Lead[]>([]);
-  const [isLeadLoading, setIsLeadLoading] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [accountList, setAccountList] = useState<AccountOption[]>([]);
+  const [isAccountLoading, setIsAccountLoading] = useState(false);
 
   // Camera Settings
   const [cameraActive, setCameraActive] = useState<{ active: boolean; type: 'board' | 'rep' }>({
@@ -73,11 +85,12 @@ export const AddVisit: React.FC = () => {
 
   const [formData, setFormData] = useState({
     companyName: '',
+    address: '',
     category: 'COMMERCIAL COMPLEX',
     phone: '',
     contactPerson: '',
     notes: '',
-    leadId: '',
+    leadId: '' as string | null,
     visitPurpose: 'COLD_CALL' as VisitPurpose,
     interactionOutcome: 'DISCUSSED' as InteractionOutcome,
     estimatedValue: '',
@@ -92,43 +105,106 @@ export const AddVisit: React.FC = () => {
   });
 
   useEffect(() => {
-    const fetchAssignedLeads = async () => {
+    const fetchAvailableAccounts = async () => {
       if (!user?.id) return;
-      setIsLeadLoading(true);
+      setIsAccountLoading(true);
       try {
-        const data = await api.request(`/leads?assignedTo=${user.id}`);
-        if (Array.isArray(data)) {
-          setActiveLeads(data.filter((l: Lead) => l.status !== 'CONVERTED' && l.status !== 'COLD'));
+        const isAdmin = user?.role === 'ADMIN';
+        const leadsUrl = isAdmin ? '/leads' : `/leads?assignedTo=${user.id}`;
+        const visitsUrl = isAdmin ? '/visits' : `/visits?rep_id=${user.id}`;
+
+        const [leadsRes, visitsRes] = await Promise.allSettled([
+          api.request(leadsUrl),
+          api.request(visitsUrl)
+        ]);
+
+        const combinedMap = new Map<string, AccountOption>();
+
+        // 1. Leads from public.leads table (Valid for visits.lead_id foreign key constraint)
+        if (leadsRes.status === 'fulfilled' && Array.isArray(leadsRes.value)) {
+          leadsRes.value.forEach((l: any) => {
+            const name = (l.companyName || l.company_name || '').trim();
+            if (name) {
+              combinedMap.set(name.toLowerCase(), {
+                id: l.id,
+                isRealLead: true,
+                companyName: name.toUpperCase(),
+                contactPerson: l.contactPerson || l.contact_person || '',
+                phone: l.phone || l.phoneNumber || l.phone_number || '',
+                address: l.address || '',
+                category: l.category || 'COMMERCIAL COMPLEX',
+                estimatedValue: l.estimatedValue || l.estimated_value || ''
+              });
+            }
+          });
         }
+
+        // 2. Previous visits from public.visits table
+        if (visitsRes.status === 'fulfilled' && Array.isArray(visitsRes.value)) {
+          visitsRes.value.forEach((v: any) => {
+            const name = (v.companyName || v.company_name || '').trim();
+            if (name && !combinedMap.has(name.toLowerCase())) {
+              let cleanAddr = '';
+              if (v.notes) {
+                const match = v.notes.match(/Address:\s*([^|]+)/i);
+                if (match && match[1]) cleanAddr = match[1].trim();
+              }
+
+              combinedMap.set(name.toLowerCase(), {
+                id: v.id,
+                isRealLead: false, // Prevents foreign key crash on visits.lead_id
+                companyName: name.toUpperCase(),
+                contactPerson: v.contactPerson || v.contact_person || '',
+                phone: v.phoneNumber || v.phone_number || v.phone || '',
+                address: cleanAddr,
+                category: v.category || 'COMMERCIAL COMPLEX',
+                estimatedValue: ''
+              });
+            }
+          });
+        }
+
+        setAccountList(Array.from(combinedMap.values()));
       } catch (err) {
-        console.error('Failed to load active leads pipeline:', err);
+        console.error('Failed to load accounts pipeline:', err);
       } finally {
-        setIsLeadLoading(false);
+        setIsAccountLoading(false);
       }
     };
-    fetchAssignedLeads();
+
+    fetchAvailableAccounts();
   }, [user]);
 
-  const handleLeadSelection = (leadId: string) => {
-    if (!leadId) {
-      setFormData((prev) => ({ ...prev, leadId: '', companyName: '', phone: '', contactPerson: '' }));
-      return;
-    }
-    const selectedLead = activeLeads.find((l) => l.id === leadId);
-    if (selectedLead) {
+  const handleLeadSelection = (accountId: string) => {
+    setSelectedAccountId(accountId);
+    if (!accountId) {
       setFormData((prev) => ({
         ...prev,
-        leadId: selectedLead.id,
-        companyName: selectedLead.companyName,
-        phone: selectedLead.phone,
-        contactPerson: selectedLead.contactPerson,
+        leadId: null,
+        companyName: '',
+        address: '',
+        phone: '',
+        contactPerson: ''
+      }));
+      return;
+    }
+    const selected = accountList.find((l) => l.id === accountId);
+    if (selected) {
+      setFormData((prev) => ({
+        ...prev,
+        // Only populate leadId if it exists in public.leads table
+        leadId: selected.isRealLead ? selected.id : null,
+        companyName: selected.companyName,
+        phone: (selected.phone || '').replace(/\D/g, '').slice(0, 10),
+        contactPerson: selected.contactPerson,
+        address: selected.address || '',
+        category: selected.category || prev.category,
         visitPurpose: 'FOLLOW_UP',
-        estimatedValue: selectedLead.estimatedValue ? selectedLead.estimatedValue.toString() : ''
+        estimatedValue: selected.estimatedValue ? selected.estimatedValue.toString() : prev.estimatedValue
       }));
     }
   };
 
-  // High-precision hardware GPS lock
   const handleCaptureRealLocation = async () => {
     setIsGpsLocking(true);
     setLocationError('');
@@ -155,11 +231,11 @@ export const AddVisit: React.FC = () => {
         }
       }
     } catch (nativeErr) {
-      console.warn('Native GPS skipped, falling back to navigator geolocation:', nativeErr);
+      console.warn('Native GPS fallback to navigator:', nativeErr);
     }
 
     if (!navigator.geolocation) {
-      setLocationError('GPS receiver not available on this browser/terminal.');
+      setLocationError('GPS sensor not available on this browser/terminal.');
       setIsGpsLocking(false);
       return;
     }
@@ -176,14 +252,11 @@ export const AddVisit: React.FC = () => {
         setIsGpsLocking(false);
       },
       (error) => {
-        console.error('Hardware GPS Error:', error);
-        let msg = 'Failed to lock satellite coordinates. Please verify device GPS is active.';
+        let msg = 'Failed to lock coordinates. Please verify device GPS is active.';
         if (error.code === error.PERMISSION_DENIED) {
-          msg = 'Location permission rejected. Allow location access in browser/device settings.';
+          msg = 'Location permission rejected. Allow location access in settings.';
         } else if (error.code === error.TIMEOUT) {
-          msg = 'Satellite acquisition timed out. Ensure open sky view and retry.';
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          msg = 'Position unavailable. Turn on Wi-Fi and mobile location services.';
+          msg = 'Satellite acquisition timed out. Ensure clear sky view.';
         }
         setLocationError(msg);
         setIsGpsLocking(false);
@@ -253,8 +326,8 @@ export const AddVisit: React.FC = () => {
   const validateStep = (): boolean => {
     const currentStep = STEPS[currentStepIndex];
 
-    if (currentStep === 'VISIT_TYPE' && visitType === 'followup' && !formData.leadId) {
-      alert('Please pick an active account from your assigned pipeline.');
+    if (currentStep === 'VISIT_TYPE' && visitType === 'followup' && !selectedAccountId) {
+      alert('Please choose an existing client or visit from the pipeline dropdown.');
       return false;
     }
 
@@ -263,8 +336,12 @@ export const AddVisit: React.FC = () => {
         alert('Please provide the company or establishment name.');
         return false;
       }
+      if (!formData.address.trim()) {
+        alert('Please provide the physical site / premises address.');
+        return false;
+      }
       if (!formData.contactPerson.trim()) {
-        alert('Please provide the decision-maker contact person name.');
+        alert('Please provide the contact person name.');
         return false;
       }
       if (formData.phone.length !== 10) {
@@ -278,7 +355,7 @@ export const AddVisit: React.FC = () => {
         (formData.interactionOutcome === 'CALLBACK' || formData.interactionOutcome === 'DEMO_SCHEDULED') &&
         !formData.nextFollowUp
       ) {
-        alert('Please assign the next follow-up/survey date.');
+        alert('Please select the next follow-up/survey date.');
         return false;
       }
     }
@@ -315,7 +392,17 @@ export const AddVisit: React.FC = () => {
 
     setIsLoading(true);
     const generatedVisitId = `VISIT-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    const cleanAddress = formData.address.trim();
 
+    // Embed address cleanly in notes for CreateQuotation extraction
+    const formattedNotes = `Address: ${cleanAddress} | Notes: ${formData.notes.trim()} | Requirements: ${formData.guardRequirement} Guards (${formData.shiftRequirement})`;
+
+    // Schema enforcement: lead_id must be NULL or exist in public.leads table
+    const safeLeadId = (formData.leadId && formData.leadId.startsWith('LEAD-'))
+      ? formData.leadId
+      : null;
+
+    // Matches public.visits schema (no `address` column to prevent 409 crash)
     const visitPayload = {
       id: generatedVisitId,
       representative_id: user?.id || null,
@@ -332,8 +419,8 @@ export const AddVisit: React.FC = () => {
       },
       board_photo: photos.board,
       rep_photo: photos.rep,
-      notes: `${formData.notes.trim()} | Requirements: ${formData.guardRequirement} Guards (${formData.shiftRequirement})`,
-      lead_id: formData.leadId || null,
+      notes: formattedNotes,
+      lead_id: safeLeadId,
       visit_purpose: formData.visitPurpose,
       interaction_outcome: formData.interactionOutcome,
       next_follow_up: formData.nextFollowUp || null
@@ -349,13 +436,14 @@ export const AddVisit: React.FC = () => {
         throw new Error('Database server failed to return receipt confirmation.');
       }
 
-      // Automatically register lead in pipeline if commercial interest expressed
-      if (!formData.leadId && ['INTERESTED', 'DEMO_SCHEDULED', 'CALLBACK'].includes(formData.interactionOutcome)) {
+      // If commercial interest expressed, register in public.leads (which DOES have address column)
+      if (!safeLeadId && ['INTERESTED', 'DEMO_SCHEDULED', 'CALLBACK'].includes(formData.interactionOutcome)) {
         const freshLeadPayload = {
           id: `LEAD-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
           company_name: formData.companyName.toUpperCase().trim(),
           contact_person: formData.contactPerson.trim(),
           phone: formData.phone,
+          address: cleanAddress,
           status: formData.interactionOutcome === 'INTERESTED' ? 'INTERESTED' : 'PROSPECT',
           estimated_value: Number(formData.estimatedValue || 0),
           assigned_to: user?.id,
@@ -408,7 +496,7 @@ export const AddVisit: React.FC = () => {
         </div>
       </div>
 
-      {/* Progress Indicator */}
+      {/* Progress Bar */}
       <div className="flex gap-2">
         {STEPS.map((step, idx) => (
           <div
@@ -473,7 +561,7 @@ export const AddVisit: React.FC = () => {
                   <div>
                     <p className="text-xs font-black uppercase">Re-Visit / Commercial Follow-Up</p>
                     <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-                      Ongoing negotiation or rate proposal discussion.
+                      Ongoing negotiation or rate proposal discussion with existing client.
                     </p>
                   </div>
                   <div
@@ -488,23 +576,30 @@ export const AddVisit: React.FC = () => {
             </div>
 
             {visitType === 'followup' && (
-              <div className="bg-slate-900 p-6 rounded-3xl shadow-xs text-white space-y-3 border border-slate-800">
+              <div className="bg-slate-900 p-6 rounded-3xl shadow-xs text-white space-y-3 border border-slate-800 animate-in fade-in duration-200">
                 <label className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest block">
-                  Select Existing Client From Assigned Pipeline:
+                  Select Existing Client / Past Visit:
                 </label>
                 <select
-                  value={formData.leadId}
+                  value={selectedAccountId}
                   onChange={(e) => handleLeadSelection(e.target.value)}
-                  disabled={isLeadLoading}
+                  disabled={isAccountLoading}
                   className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl outline-none text-white text-xs font-bold focus:border-amber-400 cursor-pointer"
                 >
-                  <option value="">-- Choose Assigned Lead Account --</option>
-                  {activeLeads.map((lead) => (
-                    <option key={lead.id} value={lead.id}>
-                      {lead.companyName} ({lead.contactPerson})
+                  <option value="">
+                    {isAccountLoading ? '-- Loading Pipeline Accounts... --' : '-- Choose Client Account / Past Site --'}
+                  </option>
+                  {accountList.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.companyName} {account.contactPerson ? `(${account.contactPerson})` : ''} {account.address ? `• ${account.address}` : ''}
                     </option>
                   ))}
                 </select>
+                {accountList.length === 0 && !isAccountLoading && (
+                  <p className="text-[10px] text-amber-300/80 font-mono mt-1">
+                    No previous visits or assigned leads found. Switch to "Initial Site Inspection" above to log a new client.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -529,11 +624,28 @@ export const AddVisit: React.FC = () => {
                   <Building2 className="absolute left-3.5 top-3 text-amber-700" size={15} />
                   <input
                     required
-                    disabled={visitType === 'followup'}
+                    disabled={visitType === 'followup' && Boolean(selectedAccountId)}
                     value={formData.companyName}
                     onChange={(e) => setFormData((prev) => ({ ...prev, companyName: e.target.value }))}
                     className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-red-700 focus:bg-white transition"
-                    placeholder="e.g. TREASURE ISLAND MALL / AGARWAL PACKERS"
+                    placeholder="e.g. TREASURE ISLAND MALL / GRIP SURYA"
+                  />
+                </div>
+              </div>
+
+              {/* Exact Site Address Field */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  Site / Premises Physical Address <span className="text-red-600">*</span>
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3.5 top-3 text-amber-700" size={15} />
+                  <input
+                    required
+                    value={formData.address}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-medium text-slate-900 outline-none focus:border-red-700 focus:bg-white transition"
+                    placeholder="e.g. Plot No. 12, Scheme 78, Vijay Nagar, Indore (M.P.)"
                   />
                 </div>
               </div>
@@ -568,7 +680,6 @@ export const AddVisit: React.FC = () => {
                     <User className="absolute left-3.5 top-3 text-amber-700" size={15} />
                     <input
                       required
-                      disabled={visitType === 'followup'}
                       value={formData.contactPerson}
                       onChange={(e) => setFormData((prev) => ({ ...prev, contactPerson: e.target.value }))}
                       className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-red-700 focus:bg-white transition"
@@ -586,7 +697,6 @@ export const AddVisit: React.FC = () => {
                     <input
                       required
                       type="tel"
-                      disabled={visitType === 'followup'}
                       value={formData.phone}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))
@@ -748,8 +858,6 @@ export const AddVisit: React.FC = () => {
         {/* STEP 4: GEOLOCATION & IDENTITY VERIFICATION */}
         {activeStep === 'VERIFICATION' && (
           <div className="space-y-4">
-
-            {/* REAL SATELLITE GPS LOCK CARD */}
             <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-1.5">
@@ -791,7 +899,6 @@ export const AddVisit: React.FC = () => {
                     </button>
                   </div>
 
-                  {/* Embedded Live Street Map View (Visual Confirmation) */}
                   <div className="w-full aspect-[16/9] sm:aspect-[21/9] rounded-2xl overflow-hidden border border-slate-200 shadow-inner bg-slate-100">
                     <iframe
                       title="Real-Time Locked GPS Location"
@@ -806,7 +913,6 @@ export const AddVisit: React.FC = () => {
                     />
                   </div>
 
-                  {/* Full Location External Link */}
                   <div className="pt-1 flex justify-end">
                     <a
                       href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${location.latitude},${location.longitude}`)}`}
@@ -848,10 +954,7 @@ export const AddVisit: React.FC = () => {
               )}
             </div>
 
-            {/* Photo Captures Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-              {/* Signboard Photo */}
               <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-3 flex flex-col justify-between">
                 <div>
                   <h4 className="text-[10px] font-mono font-bold text-slate-700 uppercase tracking-wider">
@@ -885,7 +988,6 @@ export const AddVisit: React.FC = () => {
                 )}
               </div>
 
-              {/* Officer Selfie Verification */}
               <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-3 flex flex-col justify-between">
                 <div>
                   <h4 className="text-[10px] font-mono font-bold text-slate-700 uppercase tracking-wider">
@@ -918,7 +1020,6 @@ export const AddVisit: React.FC = () => {
                   </button>
                 )}
               </div>
-
             </div>
           </div>
         )}

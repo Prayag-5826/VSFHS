@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Printer,
   ArrowLeft,
@@ -13,7 +14,9 @@ import {
   Loader2,
   MessageCircle,
   Layers,
-  FileText
+  FileText,
+  AlertTriangle,
+  ShieldCheck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -29,12 +32,143 @@ interface ServiceOptionMeta {
   defaultBasic8: number;
 }
 
+type ShiftType = '12_HOURS' | '8_HOURS';
+type PageNo = 1 | 2 | 3 | 4 | 5;
+
 const DEFAULT_SERVICE_OPTIONS: Record<ServiceRoleType, ServiceOptionMeta> = {
   GUARD: { label: 'Security Guard', defaultFlat12: 15500, defaultFlat8: 12500, defaultBasic12: 13421, defaultBasic8: 12425 },
   SUPERVISOR: { label: 'Security Field Supervisor', defaultFlat12: 18500, defaultFlat8: 15500, defaultBasic12: 14869, defaultBasic8: 13800 },
   GUNMAN: { label: 'Armed Gunman (12 Bore / .32)', defaultFlat12: 23000, defaultFlat8: 19500, defaultBasic12: 16500, defaultBasic8: 15000 },
   HOUSEKEEPING: { label: 'Housekeeping & Sanitation', defaultFlat12: 14000, defaultFlat8: 11000, defaultBasic12: 12425, defaultBasic8: 11500 }
 };
+
+const COMPANY_DEFAULTS = {
+  companyName: 'VIDHYA SECURITY FORCE & HOUSEKEEPING SERVICES',
+  address: '012 A BLOCK TREASURE TOWN INDORE, MP',
+  contactNo: '9826259292',
+  email: 'contact@vidhyasecurityforce.in',
+  directorName: 'Anil Dhariwal',
+  logo: '/assets/img/logo/logo.png',
+  psaraLicense: 'PSA/L/74/MP/2023/FEB/3/425',
+  labourRegNo: 'INDO220426SE009839',
+  epfCode: 'MPIND1462732000 / 18000232770',
+  esicRegNo: '18000237700000999',
+  gstNumber: '23AQRPD0652Q2ZI',
+  ptLicenseNo: '79479022051',
+  panNumber: 'AQRPD0652Q'
+};
+
+const TOTAL_PAGES = 5;
+const ALL_PAGES: PageNo[] = [1, 2, 3, 4, 5];
+const MAX_POSTS_PER_ROLE = 999;
+const PRINT_ROOT_ID = 'vsf-print-root';
+const PRINT_MODE_CLASS = 'vsf-print-mode';
+const MP_GST_STATE_CODE = '23';
+
+const LOGO_FALLBACK = `data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><circle cx="28" cy="28" r="26" fill="#fff" stroke="#991b1b" stroke-width="3"/><text x="28" y="33" font-family="Arial,sans-serif" font-size="14" font-weight="700" fill="#991b1b" text-anchor="middle">VSF</text></svg>'
+)}`;
+
+const formatINR = (value: number): string =>
+  `₹${(Number(value) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const formatDate = (iso?: string): string => {
+  const d = iso ? new Date(iso) : new Date();
+  return (Number.isNaN(d.getTime()) ? new Date() : d).toLocaleDateString('en-GB');
+};
+
+const formatPercent = (value: number): string => `${Number(value)}%`;
+const shiftLabel = (shift: ShiftType): string => (shift === '12_HOURS' ? '12 Hrs' : '08 Hrs');
+
+const GSTIN_CHARSET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const isValidGSTIN = (raw: string): boolean => {
+  const g = (raw || '').trim().toUpperCase();
+  if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(g)) return false;
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const product = GSTIN_CHARSET.indexOf(g[i]) * (i % 2 === 0 ? 1 : 2);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  return GSTIN_CHARSET[(36 - (sum % 36)) % 36] === g[14];
+};
+
+const isValidPAN = (raw: string): boolean => /^[A-Z]{5}[0-9]{4}[A-Z]$/.test((raw || '').trim().toUpperCase());
+const normaliseIndianMobile = (raw: string): string => (raw || '').replace(/\D/g, '').replace(/^(?:91|0)(?=\d{10}$)/, '');
+const isValidIndianMobile = (raw: string): boolean => /^[6-9]\d{9}$/.test(normaliseIndianMobile(raw));
+const differs = (a: number, b: number): boolean => Math.abs((Number(a) || 0) - (Number(b) || 0)) > 0.5;
+
+const PRINT_CSS = `
+  .vsf-sheet {
+    width: 210mm;
+    height: 297mm;
+    padding: 12mm 15mm;
+    box-sizing: border-box;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: #ffffff;
+    color: #0f172a;
+    flex-shrink: 0;
+  }
+
+  #${PRINT_ROOT_ID} { display: none; }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  @media print {
+    html.${PRINT_MODE_CLASS},
+    html.${PRINT_MODE_CLASS} body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 210mm !important;
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    html.${PRINT_MODE_CLASS} body > *:not(#${PRINT_ROOT_ID}) {
+      display: none !important;
+    }
+
+    html.${PRINT_MODE_CLASS} #${PRINT_ROOT_ID} {
+      display: block !important;
+      position: static !important;
+      width: 210mm !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    #${PRINT_ROOT_ID} .vsf-sheet {
+      margin: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      break-after: page;
+      page-break-after: always;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    #${PRINT_ROOT_ID} .vsf-sheet:last-child {
+      break-after: auto;
+      page-break-after: auto;
+    }
+
+    #${PRINT_ROOT_ID} table,
+    #${PRINT_ROOT_ID} tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  }
+`;
 
 export const CreateQuotation: React.FC = () => {
   const navigate = useNavigate();
@@ -43,7 +177,9 @@ export const CreateQuotation: React.FC = () => {
   const isAdmin = user?.role === Role.ADMIN;
 
   const [viewMode, setViewMode] = useState<'BUILDER' | 'PREVIEW'>('BUILDER');
-  const [activePageTab, setActivePageTab] = useState<'ALL' | 1 | 2 | 3 | 4 | 5>('ALL');
+  const [activePageTab, setActivePageTab] = useState<'ALL' | PageNo>('ALL');
+  const [printPages, setPrintPages] = useState<PageNo[] | null>(null);
+  const printRequestedRef = useRef(false);
 
   const [proposals, setProposals] = useState<any[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -52,6 +188,7 @@ export const CreateQuotation: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [builderErrors, setBuilderErrors] = useState<string[]>([]);
 
   // Proposal Meta
   const [billingModel, setBillingModel] = useState<'COMPLIANCE' | 'FLAT'>('COMPLIANCE');
@@ -62,7 +199,6 @@ export const CreateQuotation: React.FC = () => {
   const [contactPerson, setContactPerson] = useState('');
   const [serviceChargePercent, setServiceChargePercent] = useState<number>(settings?.defaultServiceMargin ?? 8);
 
-  // Active Service Toggles
   const [enabledServices, setEnabledServices] = useState<Record<ServiceRoleType, boolean>>({
     GUARD: true,
     SUPERVISOR: false,
@@ -70,21 +206,43 @@ export const CreateQuotation: React.FC = () => {
     HOUSEKEEPING: false
   });
 
-  // Manning Configurations per Service
-  const [serviceConfigs, setServiceConfigs] = useState<Record<ServiceRoleType, { count: number; shift: '12_HOURS' | '8_HOURS'; flatRate: number }>>({
+  const [serviceConfigs, setServiceConfigs] = useState<Record<ServiceRoleType, { count: number; shift: ShiftType; flatRate: number }>>({
     GUARD: { count: 1, shift: '12_HOURS', flatRate: settings?.flatGuard12 ?? 15500 },
     SUPERVISOR: { count: 0, shift: '12_HOURS', flatRate: settings?.flatSupervisor12 ?? 18500 },
     GUNMAN: { count: 0, shift: '12_HOURS', flatRate: settings?.flatGunman12 ?? 23000 },
     HOUSEKEEPING: { count: 0, shift: '8_HOURS', flatRate: settings?.flatHousekeeping8 ?? 11000 }
   });
 
-  // Custom Negotiated Basic Rates
   const [customBasicRates, setCustomBasicRates] = useState<Record<ServiceRoleType, { basic12: number; basic8: number }>>({
     GUARD: { basic12: 13421, basic8: 12425 },
     SUPERVISOR: { basic12: 14869, basic8: 13800 },
     GUNMAN: { basic12: 16500, basic8: 15000 },
     HOUSEKEEPING: { basic12: 12425, basic8: 11500 }
   });
+
+  const company = useMemo(() => ({
+    companyName: settings?.companyName || COMPANY_DEFAULTS.companyName,
+    address: settings?.address || COMPANY_DEFAULTS.address,
+    contactNo: settings?.contactNo || COMPANY_DEFAULTS.contactNo,
+    email: settings?.email || COMPANY_DEFAULTS.email,
+    directorName: settings?.directorName || COMPANY_DEFAULTS.directorName,
+    logo: settings?.logo || COMPANY_DEFAULTS.logo,
+    sealImage: settings?.sealImage || '',
+    psaraLicense: settings?.psaraLicense || COMPANY_DEFAULTS.psaraLicense,
+    labourRegNo: settings?.labourRegNo || COMPANY_DEFAULTS.labourRegNo,
+    epfCode: settings?.epfCode || COMPANY_DEFAULTS.epfCode,
+    esicRegNo: settings?.esicRegNo || COMPANY_DEFAULTS.esicRegNo,
+    gstNumber: (settings?.gstNumber || COMPANY_DEFAULTS.gstNumber).trim().toUpperCase(),
+    ptLicenseNo: settings?.ptLicenseNo || COMPANY_DEFAULTS.ptLicenseNo,
+    panNumber: (settings?.panNumber || COMPANY_DEFAULTS.panNumber).trim().toUpperCase()
+  }), [settings]);
+
+  const statutoryRates = {
+    overtime: settings?.overtimePercent ?? 35,
+    reliever: settings?.reliverPercent ?? 16.67,
+    epf: settings?.epfPercent ?? 13,
+    esic: settings?.esicPercent ?? 3.25
+  };
 
   const fetchProposalsData = async () => {
     try {
@@ -117,29 +275,58 @@ export const CreateQuotation: React.FC = () => {
     fetchProposalsData();
   }, [user]);
 
+  // Robust address and details extraction from linked visits
   const handleVisitSelect = (visitId: string) => {
     setSelectedVisitId(visitId);
     setSelectedProposal(null);
+    setBuilderErrors([]);
 
     const visit: any = visits.find((v: any) => v.id === visitId);
     if (!visit) return;
 
     setClientName(visit.companyName || visit.company_name || '');
     setContactPerson(visit.contactPerson || visit.contact_person || '');
-    setClientPhone(visit.phoneNumber || visit.phone_number || visit.phone || '');
+    setClientPhone(normaliseIndianMobile(visit.phoneNumber || visit.phone_number || visit.phone || '').slice(0, 10));
 
     const rawNotes = visit.notes || '';
-    const cleanNotes = rawNotes.split('| Requirements:')[0].split('| Guards:')[0].trim();
-    const categoryText = visit.category ? `${visit.category}, Indore (M.P.)` : 'Indore, Madhya Pradesh';
-    setClientAddress(cleanNotes ? `${cleanNotes}, ${categoryText}` : categoryText);
 
-    const guardMatch = rawNotes.match(/Guards:\s*(\d+)/i);
+    // Priority 1: Direct address field if recorded
+    let resolvedAddress = (visit.address || '').trim();
+
+    // Priority 2: Extract explicit "Address: ..." prefix from notes
+    if (!resolvedAddress && rawNotes.includes('Address:')) {
+      const match = rawNotes.match(/Address:\s*([^|]+)/i);
+      if (match && match[1]) {
+        resolvedAddress = match[1].trim();
+      }
+    }
+
+    // Priority 3: Fall back to raw notes strip (excluding system suffixes)
+    if (!resolvedAddress) {
+      const cleanNotes = rawNotes
+        .split('| Requirements:')[0]
+        .split('| Guards:')[0]
+        .split('| Notes:')[0]
+        .trim();
+      if (cleanNotes && !cleanNotes.includes('COMMERCIAL COMPLEX') && !cleanNotes.includes('INDUSTRIAL WAREHOUSE')) {
+        resolvedAddress = cleanNotes;
+      }
+    }
+
+    // If still blank, use clean regional fallback without repeating sector text
+    if (!resolvedAddress) {
+      resolvedAddress = 'Indore, Madhya Pradesh';
+    }
+
+    setClientAddress(resolvedAddress);
+
+    const guardMatch = rawNotes.match(/Guards:\s*(\d+)/i) || rawNotes.match(/Requirements:\s*(\d+)/i);
     const count = guardMatch ? parseInt(guardMatch[1], 10) : 1;
 
     setServiceConfigs(prev => ({
       ...prev,
       GUARD: {
-        count: count > 0 ? count : 1,
+        count: Math.min(MAX_POSTS_PER_ROLE, count > 0 ? count : 1),
         shift: rawNotes.includes('8_HOURS') ? '8_HOURS' : '12_HOURS',
         flatRate: settings?.flatGuard12 ?? 15500
       }
@@ -155,22 +342,36 @@ export const CreateQuotation: React.FC = () => {
     setViewMode('BUILDER');
   };
 
-  const resolveBaseWage = (role: ServiceRoleType, shift: '12_HOURS' | '8_HOURS'): number => {
-    if (wageMode === 'PORTAL_MIN_WAGE') {
-      if (role === 'GUARD') return shift === '12_HOURS' ? (settings?.guardBasic12 ?? 13421) : (settings?.guardBasic8 ?? 12425);
-      if (role === 'SUPERVISOR') return shift === '12_HOURS' ? (settings?.supervisorBasic12 ?? 14869) : (settings?.supervisorBasic8 ?? 13800);
-      if (role === 'GUNMAN') return shift === '12_HOURS' ? (settings?.gunmanBasic12 ?? 16500) : (settings?.gunmanBasic8 ?? 15000);
-      if (role === 'HOUSEKEEPING') return shift === '12_HOURS' ? (settings?.housekeepingBasic12 ?? 12425) : (settings?.housekeepingBasic8 ?? 11500);
-    }
+  const resolveMinimumWage = (role: ServiceRoleType, shift: ShiftType): number => {
+    if (role === 'GUARD') return shift === '12_HOURS' ? (settings?.guardBasic12 ?? 13421) : (settings?.guardBasic8 ?? 12425);
+    if (role === 'SUPERVISOR') return shift === '12_HOURS' ? (settings?.supervisorBasic12 ?? 14869) : (settings?.supervisorBasic8 ?? 13800);
+    if (role === 'GUNMAN') return shift === '12_HOURS' ? (settings?.gunmanBasic12 ?? 16500) : (settings?.gunmanBasic8 ?? 15000);
+    return shift === '12_HOURS' ? (settings?.housekeepingBasic12 ?? 12425) : (settings?.housekeepingBasic8 ?? 11500);
+  };
+
+  const resolveBaseWage = (role: ServiceRoleType, shift: ShiftType): number => {
+    if (wageMode === 'PORTAL_MIN_WAGE') return resolveMinimumWage(role, shift);
     return shift === '12_HOURS' ? customBasicRates[role].basic12 : customBasicRates[role].basic8;
   };
 
-  const calculateStatutoryRole = (role: ServiceRoleType, shift: '12_HOURS' | '8_HOURS') => {
+  const resolveFlatRate = (role: ServiceRoleType, shift: ShiftType): number => {
+    const fallback = shift === '12_HOURS' ? DEFAULT_SERVICE_OPTIONS[role].defaultFlat12 : DEFAULT_SERVICE_OPTIONS[role].defaultFlat8;
+    const fromSettings: Record<ServiceRoleType, [number | undefined, number | undefined]> = {
+      GUARD: [settings?.flatGuard12, settings?.flatGuard8],
+      SUPERVISOR: [settings?.flatSupervisor12, settings?.flatSupervisor8],
+      GUNMAN: [settings?.flatGunman12, settings?.flatGunman8],
+      HOUSEKEEPING: [settings?.flatHousekeeping12, settings?.flatHousekeeping8]
+    };
+    const [rate12, rate8] = fromSettings[role];
+    return (shift === '12_HOURS' ? rate12 : rate8) ?? fallback;
+  };
+
+  const calculateStatutoryRole = (role: ServiceRoleType, shift: ShiftType) => {
     const base = resolveBaseWage(role, shift);
-    const otPercent = settings?.overtimePercent ?? 35;
-    const relPercent = settings?.reliverPercent ?? 16.67;
-    const epfRate = (settings?.epfPercent ?? 13) / 100;
-    const esicRate = (settings?.esicPercent ?? 3.25) / 100;
+    const otPercent = statutoryRates.overtime;
+    const relPercent = statutoryRates.reliever;
+    const epfRate = statutoryRates.epf / 100;
+    const esicRate = statutoryRates.esic / 100;
     const marginRate = (serviceChargePercent || settings?.defaultServiceMargin || 8) / 100;
 
     const additional12Hrs = shift === '12_HOURS' ? Math.round(base * (otPercent / 100)) : 0;
@@ -201,12 +402,7 @@ export const CreateQuotation: React.FC = () => {
       if (enabledServices[role] && serviceConfigs[role].count > 0) {
         const conf = serviceConfigs[role];
         const stat = calculateStatutoryRole(role, conf.shift);
-
-        let flatBase = conf.shift === '12_HOURS' ? DEFAULT_SERVICE_OPTIONS[role].defaultFlat12 : DEFAULT_SERVICE_OPTIONS[role].defaultFlat8;
-        if (role === 'GUARD') flatBase = conf.shift === '12_HOURS' ? (settings?.flatGuard12 ?? flatBase) : (settings?.flatGuard8 ?? flatBase);
-        if (role === 'SUPERVISOR') flatBase = conf.shift === '12_HOURS' ? (settings?.flatSupervisor12 ?? flatBase) : (settings?.flatSupervisor8 ?? flatBase);
-        if (role === 'GUNMAN') flatBase = conf.shift === '12_HOURS' ? (settings?.flatGunman12 ?? flatBase) : (settings?.flatGunman8 ?? flatBase);
-        if (role === 'HOUSEKEEPING') flatBase = conf.shift === '12_HOURS' ? (settings?.flatHousekeeping12 ?? flatBase) : (settings?.flatHousekeeping8 ?? flatBase);
+        const flatBase = resolveFlatRate(role, conf.shift);
 
         const currentModel = (viewMode === 'PREVIEW' && selectedProposal?.billing_model) ? selectedProposal.billing_model : billingModel;
         const perHead = currentModel === 'COMPLIANCE' ? stat.grandTotal : flatBase;
@@ -237,6 +433,96 @@ export const CreateQuotation: React.FC = () => {
     ? selectedProposal.billing_model
     : billingModel;
 
+  const effectiveMarginPercent: number = (viewMode === 'PREVIEW' && selectedProposal?.service_charge_percent != null)
+    ? Number(selectedProposal.service_charge_percent)
+    : serviceChargePercent;
+
+  const docClientName: string = (selectedProposal?.client_name || clientName || '').trim();
+  const docClientAddress: string = (selectedProposal?.client_address || clientAddress || '').trim();
+  const docDate = formatDate(selectedProposal?.created_at);
+  const docRef: string = selectedProposal?.id || 'UNSAVED DRAFT';
+
+  const validateBuilder = (): string[] => {
+    const errors: string[] = [];
+    if (clientName.trim().length < 3) errors.push('Client establishment name is required (minimum 3 characters).');
+    if (clientAddress.trim().length < 5) errors.push('Premises address is required.');
+    if (clientPhone && !isValidIndianMobile(clientPhone)) errors.push('Contact mobile must be a valid 10-digit Indian number.');
+
+    const enabledRoles = (Object.keys(enabledServices) as ServiceRoleType[]).filter(role => enabledServices[role]);
+    if (enabledRoles.length === 0) errors.push('Select at least one service to quote.');
+
+    enabledRoles.forEach(role => {
+      const cfg = serviceConfigs[role];
+      const label = DEFAULT_SERVICE_OPTIONS[role].label;
+      if (!Number.isInteger(cfg.count) || cfg.count < 1 || cfg.count > MAX_POSTS_PER_ROLE) {
+        errors.push(`${label}: number of posts must be between 1 and ${MAX_POSTS_PER_ROLE}.`);
+      }
+      if (billingModel === 'COMPLIANCE' && wageMode === 'CUSTOM') {
+        const basic = resolveBaseWage(role, cfg.shift);
+        const minWage = resolveMinimumWage(role, cfg.shift);
+        if (!(basic > 0)) {
+          errors.push(`${label} (${shiftLabel(cfg.shift)}): custom basic wage must be greater than ₹0.`);
+        } else if (basic < minWage) {
+          errors.push(`${label} (${shiftLabel(cfg.shift)}): custom basic ${formatINR(basic)} is below minimum wage ${formatINR(minWage)}.`);
+        }
+      }
+      if (billingModel === 'FLAT' && !(resolveFlatRate(role, cfg.shift) > 0)) {
+        errors.push(`${label} (${shiftLabel(cfg.shift)}): flat rate is not configured in Settings.`);
+      }
+    });
+
+    if (!(serviceChargePercent >= 0 && serviceChargePercent <= 50)) {
+      errors.push('Agency service charge must be between 0% and 50%.');
+    }
+
+    return errors;
+  };
+
+  const docketIssues = useMemo((): string[] => {
+    if (viewMode !== 'PREVIEW') return [];
+    const issues: string[] = [];
+
+    if (!selectedProposal) issues.push('Save the proposal first before printing.');
+    if (docClientName.length < 3) issues.push('Client establishment name is missing.');
+    if (docClientAddress.length < 5) issues.push('Client premises address is missing.');
+
+    const items: any[] = activeChosenServices || [];
+    if (items.length === 0) issues.push('No service positions on this proposal.');
+
+    items.forEach((item: any) => {
+      const label = item.label || item.role || 'Service';
+      const count = Number(item.count);
+      const rate = Number(item.perHeadRate);
+      const line = Number(item.lineTotal);
+
+      if (!Number.isInteger(count) || count < 1) issues.push(`${label}: invalid post count.`);
+      if (!(rate > 0)) issues.push(`${label}: per-head rate is zero or missing.`);
+      if (differs(rate * count, line)) issues.push(`${label}: line total calculation mismatch.`);
+
+      if (effectiveBillingModel === 'COMPLIANCE') {
+        const s = item.statutory;
+        if (!s) {
+          issues.push(`${label}: wage breakup missing.`);
+          return;
+        }
+        if (differs(s.base + s.additional12Hrs + s.reliever, s.gross)) issues.push(`${label}: gross earnings do not reconcile.`);
+        if (differs(s.ctc + s.agencyMargin, s.grandTotal)) issues.push(`${label}: CTC does not reconcile.`);
+      }
+    });
+
+    const lineSum = items.reduce((acc: number, it: any) => acc + (Number(it.lineTotal) || 0), 0);
+    if (items.length > 0 && differs(lineSum, totalMonthlyBilling)) {
+      issues.push(`Total billing mismatch.`);
+    }
+
+    if (!isValidGSTIN(company.gstNumber)) {
+      issues.push(`Company GSTIN "${company.gstNumber}" is invalid.`);
+    }
+    if (!isValidPAN(company.panNumber)) issues.push(`Company PAN "${company.panNumber}" is invalid.`);
+
+    return issues;
+  }, [viewMode, selectedProposal, docClientName, docClientAddress, activeChosenServices, effectiveBillingModel, totalMonthlyBilling, company]);
+
   const handleResetForm = () => {
     setSelectedProposal(null);
     setSelectedVisitId('');
@@ -244,6 +530,7 @@ export const CreateQuotation: React.FC = () => {
     setContactPerson('');
     setClientPhone('');
     setClientAddress('');
+    setBuilderErrors([]);
     setEnabledServices({ GUARD: true, SUPERVISOR: false, GUNMAN: false, HOUSEKEEPING: false });
     setServiceConfigs({
       GUARD: { count: 1, shift: '12_HOURS', flatRate: settings?.flatGuard12 ?? 15500 },
@@ -257,12 +544,11 @@ export const CreateQuotation: React.FC = () => {
 
   const handleSaveProposal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim()) {
-      showToast('Client establishment name is required.', 'info');
-      return;
-    }
-    if (activeChosenServices.length === 0) {
-      showToast('Assign at least one deployed service position.', 'error');
+
+    const errors = validateBuilder();
+    setBuilderErrors(errors);
+    if (errors.length > 0) {
+      showToast(errors[0], 'error');
       return;
     }
 
@@ -274,7 +560,7 @@ export const CreateQuotation: React.FC = () => {
       visit_id: selectedVisitId || null,
       client_name: clientName.trim().toUpperCase(),
       client_address: clientAddress.trim(),
-      client_phone: clientPhone.trim(),
+      client_phone: normaliseIndianMobile(clientPhone),
       contact_person: contactPerson.trim(),
       billing_model: billingModel,
       wage_mode: wageMode,
@@ -293,7 +579,7 @@ export const CreateQuotation: React.FC = () => {
         body: JSON.stringify(newProposal)
       });
     } catch (err) {
-      console.warn('Database proposal synchronization notice:', err);
+      console.warn('Database sync notice:', err);
     }
 
     const local = JSON.parse(localStorage.getItem('vsf_saved_proposals') || '[]');
@@ -305,7 +591,7 @@ export const CreateQuotation: React.FC = () => {
     setActivePageTab('ALL');
     setViewMode('PREVIEW');
     setSubmitting(false);
-    showToast('Quotation saved successfully & added to All Saved Proposals!', 'success');
+    showToast('Quotation saved successfully & ready for printing!', 'success');
   };
 
   const handleApproveProposal = async () => {
@@ -333,219 +619,590 @@ export const CreateQuotation: React.FC = () => {
   };
 
   const handleShareWhatsApp = () => {
-    if (!selectedProposal) return;
-    const phone = selectedProposal.client_phone || clientPhone || settings?.contactNo || '';
-    const cleanPhone = phone.replace(/\D/g, '');
-    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    if (!selectedProposal) {
+      showToast('Save the proposal before sharing it.', 'error');
+      return;
+    }
+    const phone = normaliseIndianMobile(selectedProposal.client_phone || clientPhone || '');
+    if (!isValidIndianMobile(phone)) {
+      showToast('Client mobile number is invalid or missing.', 'error');
+      return;
+    }
+    const formattedPhone = `91${phone}`;
     const client = selectedProposal.client_name || clientName || 'Valued Client';
 
     const serviceSummary = activeChosenServices
-      .map((s: any) => `${s.count}x ${s.label} (${s.shift === '12_HOURS' ? '12-Hr' : '8-Hr'}) @ ₹${s.perHeadRate.toLocaleString('en-IN')}/head`)
+      .map((s: any) => `${s.count}x ${s.label} (${shiftLabel(s.shift)}) @ ${formatINR(s.perHeadRate)}/head`)
       .join('\n');
 
-    let text = '';
-    if (activePageTab === 2) {
-      text =
-        `*OFFICIAL RATE QUOTATION* 🛡️\n` +
-        `*${settings?.companyName || 'VIDHYA SECURITY FORCE & HOUSEKEEPING SERVICES'}*\n\n` +
-        `Dear *${client}*,\n` +
-        `Please review our commercial quotation:\n\n` +
-        `📋 *Selected Services:*\n${serviceSummary}\n\n` +
-        `💰 *Monthly Consideration:* ₹${totalMonthlyBilling.toLocaleString('en-IN')}/- (*GST extra on monthly billing*)\n\n` +
-        `Director Anil Dhariwal: +91 9826259020\n` +
-        `_Your Security Is Our Responsibility!_`;
-    } else {
-      text =
-        `*COMPREHENSIVE PROPOSAL DOSSIER (5 PAGES)* 🛡️\n` +
-        `*${settings?.companyName || 'VIDHYA SECURITY FORCE & HOUSEKEEPING SERVICES'}*\n` +
-        `_PSARA MP Licensed Security & Facility Agency_\n\n` +
-        `Dear *${client}*,\n` +
-        `We are pleased to present our complete 5-Page Dossier for your establishment.\n\n` +
-        `📋 *Proposed Deployments:*\n${serviceSummary}\n\n` +
-        `💰 *Net Monthly Billing:* ₹${totalMonthlyBilling.toLocaleString('en-IN')}/- (*GST Extra on Monthly Billing*)\n` +
-        `📄 *Includes:* Introduction, Service Rate Matrix, GST Compliance (RCM Sec 9(3)), Service Assurance & Statutory Registrations (PSARA, EPF, ESIC, GSTIN).\n\n` +
-        `Central Command: +91 9826259020, 9229678188\n` +
-        `_Protection & Security • संरक्षण एवं सुरक्षा_`;
-    }
+    const text =
+      `*OFFICIAL RATE QUOTATION* 🛡️\n` +
+      `*${company.companyName}*\n\n` +
+      `Dear *${client}*,\n` +
+      `Please review our official service quotation:\n\n` +
+      `📋 *Allocated Deployments:*\n${serviceSummary}\n\n` +
+      `💰 *Net Monthly Billing:* ${formatINR(totalMonthlyBilling)}/- (*GST Extra*)\n\n` +
+      `Director Anil Dhariwal: +91 9826259020\n` +
+      `_Protection & Security • संरक्षण एवं सुरक्षा_`;
 
     window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  const handlePrint = (pageTarget: 'ALL' | 'RATE' | 1 | 2 | 3 | 4 | 5) => {
-    // 'RATE' maps to Page 2 (Rate Sheet) but keeps API simple for callers
-    const target = pageTarget === 'RATE' ? 2 : pageTarget;
-    // Ensure preview mode and active page are set before printing
-    setActivePageTab(target as any);
-    setViewMode('PREVIEW');
-    // Allow layout to settle (fonts, images) before invoking print
-    setTimeout(() => {
-      window.print();
-      // After print dialog is closed reset to ALL to avoid accidental extra pages
-      setActivePageTab('ALL');
-    }, 220);
+  const visiblePages: PageNo[] = activePageTab === 'ALL' ? ALL_PAGES : [activePageTab];
+  const pagesInPrintRoot: PageNo[] = printPages ?? visiblePages;
+
+  const pdfFileName = useMemo(() => {
+    const safeClient = (docClientName || 'Client').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+    return `VSF_Quotation_${safeClient}_${docRef.replace(/[^A-Za-z0-9-]+/g, '')}`;
+  }, [docClientName, docRef]);
+
+  useEffect(() => {
+    if (viewMode !== 'PREVIEW') return;
+    document.documentElement.classList.add(PRINT_MODE_CLASS);
+    return () => document.documentElement.classList.remove(PRINT_MODE_CLASS);
+  }, [viewMode]);
+
+  const handlePrint = (pageTarget: 'ALL' | 'RATE' | PageNo) => {
+    if (docketIssues.length > 0) {
+      showToast(`Cannot print: ${docketIssues[0]}`, 'error');
+      return;
+    }
+    const pages: PageNo[] = pageTarget === 'ALL' ? ALL_PAGES : [pageTarget === 'RATE' ? 2 : pageTarget];
+    printRequestedRef.current = true;
+    setPrintPages(pages);
   };
+
+  useEffect(() => {
+    if (!printPages || !printRequestedRef.current) return;
+    printRequestedRef.current = false;
+
+    let cancelled = false;
+    const originalTitle = document.title;
+
+    const restore = () => {
+      document.title = originalTitle;
+      setPrintPages(null);
+    };
+
+    const run = async () => {
+      try {
+        await (document as any).fonts?.ready;
+      } catch {
+        /* fonts API */
+      }
+      const root = document.getElementById(PRINT_ROOT_ID);
+      const images = root ? Array.from(root.querySelectorAll('img')) : [];
+      await Promise.all(
+        images.map(img =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise<void>(resolve => {
+                img.addEventListener('load', () => resolve(), { once: true });
+                img.addEventListener('error', () => resolve(), { once: true });
+              })
+        )
+      );
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      if (cancelled) return;
+
+      window.addEventListener('afterprint', restore, { once: true });
+      document.title = pdfFileName;
+      window.print();
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [printPages, pdfFileName]);
 
   const isApproved = selectedProposal?.status === 'APPROVED';
 
-  // Professional Printable Header Component
-  const PrintHeader: React.FC = () => (
-    <div className="w-full border-b-2 border-red-800 pb-2.5 mb-2.5 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2.5 shrink-0">
+  // Substantial, Highly-Readable Executive Header Component
+  const renderHeader = () => (
+    <div className="w-full border-b-2 border-red-800 pb-3 mb-3 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3 shrink-0">
         <img
-          src={settings?.logo || '/assets/img/logo/logo.png'}
+          src={company.logo}
           alt="VSF Logo"
-          className="w-14 h-14 object-contain"
-          onError={(e: any) => { e.target.src = 'https://via.placeholder.com/56?text=VSF'; }}
+          className="w-16 h-16 object-contain"
+          onError={(e: any) => {
+            const img = e.currentTarget;
+            if (img.dataset.fallback === '1') return;
+            img.dataset.fallback = '1';
+            img.src = LOGO_FALLBACK;
+          }}
         />
         <div className="text-left leading-tight">
-          <span className="text-[9px] font-mono font-black text-red-700 tracking-wider block">
+          <span className="text-[10px] font-mono font-black text-red-700 tracking-wider block">
             PROTECTION &bull; SECURITY
           </span>
-          <span className="text-[10.5px] font-black text-slate-800 tracking-wide block">
+          <span className="text-[12px] font-black text-slate-900 tracking-wide block">
             संरक्षण एवं सुरक्षा
           </span>
-          <span className="text-[8px] font-mono text-slate-500 font-semibold block mt-0.5">
-            EMERGENCY CONTROL: +91 9826259292
+          <span className="text-[9px] font-mono text-slate-500 font-bold block mt-0.5">
+            EMERGENCY: +91 9826259292
           </span>
         </div>
       </div>
 
-      <div className="text-center flex-1 px-1">
-        <h1 className="text-[13px] font-black uppercase tracking-tight text-slate-950 leading-tight">
-          {settings?.companyName || 'VIDHYA SECURITY FORCE & HOUSEKEEPING SERVICES'}
+      <div className="text-center flex-1 px-2">
+        <h1 className="text-[15px] font-black uppercase tracking-tight text-slate-950 leading-tight">
+          {company.companyName}
         </h1>
-        <p className="text-[8px] font-bold text-slate-700 uppercase tracking-wide mt-0.5">
-          ADDRESS: {settings?.address || '012 A BLOCK TREASURE TOWN INDORE, MP'}
+        <p className="text-[9.5px] font-bold text-slate-700 uppercase tracking-wide mt-1">
+          HQ: {company.address}
         </p>
-        <p className="text-[8px] font-mono font-medium text-slate-600">
-          Office No: {settings?.contactNo || '9826259292'}, 9229678188 &bull; Email: {settings?.email || 'contact@vidhyasecurityforce.in'}
+        <p className="text-[9px] font-mono font-semibold text-slate-600">
+          Phone: {company.contactNo}, 9229678188 &bull; Email: {company.email}
         </p>
       </div>
 
-      <div className="text-right shrink-0 space-y-0.5">
-        <span className="inline-block text-[8px] font-mono font-black bg-red-50 border border-red-200 text-red-800 px-2 py-0.5 rounded uppercase">
+      <div className="text-right shrink-0 space-y-1">
+        <span className="inline-block text-[9px] font-mono font-black bg-red-50 border border-red-200 text-red-800 px-3 py-1 rounded uppercase">
           PSARA MP LICENSED
         </span>
-        <span className="text-[8px] font-mono text-slate-600 font-bold block">
-          Date: {new Date().toLocaleDateString('en-GB')}
+        <span className="text-[9.5px] font-mono text-slate-700 font-bold block">
+          Date: {docDate}
         </span>
       </div>
     </div>
   );
 
-  // Flexible spacer that absorbs leftover vertical space on lightly-filled
-  // pages so the footer doesn't get stranded at the bottom with a raw gap.
-  // Renders a subtle centered brand mark + divider instead of dead space.
-  const PageFiller: React.FC = () => (
-    <div className="page-filler flex-1 min-h-[10mm] flex flex-col items-center justify-center gap-3">
-      <div className="w-14 h-14 rounded-full border border-red-100 flex items-center justify-center opacity-[0.14] print:opacity-20">
-        <FileCheck2 className="w-7 h-7 text-red-800" strokeWidth={1.5} />
+  // Enlarged, Authoritative Seal & Signature Block
+  const renderSignature = (title: string, showFirmLine = false) => (
+    <div className="text-center space-y-1">
+      {showFirmLine && (
+        <p className="text-[10px] font-bold text-slate-700 uppercase">For {company.companyName}</p>
+      )}
+      <div
+        className={`w-36 h-20 rounded mx-auto flex items-center justify-center p-1 ${
+          company.sealImage ? '' : 'border-2 border-dashed border-red-300 bg-red-50/20'
+        }`}
+      >
+        {company.sealImage ? (
+          <img src={company.sealImage} alt="Official Seal" className="max-h-full max-w-full object-contain" />
+        ) : (
+          <span className="text-[9px] font-mono font-bold text-red-700 tracking-wider">[ OFFICIAL STAMP / SEAL ]</span>
+        )}
       </div>
-      <div className="flex items-center gap-3 w-full max-w-[100mm]">
-        <span className="flex-1 h-px bg-slate-200" />
-        <span className="text-[7px] font-mono uppercase tracking-[0.35em] text-slate-300 whitespace-nowrap">
-          Vidhya Security Force
-        </span>
-        <span className="flex-1 h-px bg-slate-200" />
+      <p className="text-[13px] font-black uppercase text-slate-950 tracking-wide">{company.directorName}</p>
+      <p className="text-[10.5px] font-mono font-bold text-slate-600 uppercase">{title}</p>
+    </div>
+  );
+
+  const renderFooter = (pageNo: PageNo, left: React.ReactNode, signatureTitle: string, showFirmLine = false) => (
+    <div className="pt-3 border-t border-slate-200 flex justify-between items-end gap-4 mt-auto">
+      <div className="text-[9.5px] font-mono text-slate-600 space-y-1">
+        {left}
+        <p className="text-[8.5px] text-slate-400 pt-0.5">
+          Page {pageNo} of {TOTAL_PAGES} &bull; Docket Ref: {docRef}
+        </p>
+      </div>
+      {renderSignature(signatureTitle, showFirmLine)}
+    </div>
+  );
+
+  const renderClientBlock = (label: string, rightLabel: string, rightValue: string) => (
+    <div className="bg-[#F8FAFC] p-4 rounded-xl border border-slate-200 flex justify-between items-start gap-4">
+      <div className="min-w-0">
+        <p className="text-[9.5px] font-mono font-bold text-slate-500 uppercase tracking-wider">{label}</p>
+        <p className="text-base font-black text-slate-950 uppercase mt-0.5">{docClientName || 'VALUED CLIENT'}</p>
+        <p className="text-[12px] text-slate-700 mt-1 font-medium leading-tight">Address: {docClientAddress || 'Indore, Madhya Pradesh'}</p>
+      </div>
+      <div className="text-right font-mono text-[10px] shrink-0">
+        <p className="text-slate-500 uppercase font-bold">{rightLabel}</p>
+        <p className="text-xs font-black text-slate-950 mt-0.5">{rightValue}</p>
       </div>
     </div>
   );
+
+  const sheetClass = (mode: 'screen' | 'print') =>
+    `vsf-sheet font-sans ${mode === 'screen' ? 'rounded-2xl border border-slate-200 shadow-xl' : ''}`;
+
+  // ---------------- PAGE 1: INTRODUCTION LETTER ----------------
+  const renderPage1 = (mode: 'screen' | 'print') => (
+    <div className={sheetClass(mode)}>
+      <div className="space-y-4">
+        {renderHeader()}
+        {renderClientBlock('To Establishment:', 'Proposal Date:', docDate)}
+
+        <div className="space-y-4 text-[13px] leading-relaxed text-slate-800 pt-1">
+          <p className="text-justify font-medium">
+            <strong>Objective:</strong> Vidhya Security Force &amp; Housekeeping Services is dedicated to providing <strong className="uppercase font-black text-slate-950">{docClientName || 'your establishment'}</strong> with premier guarding operations, perimeter security, and complete facility management. Our mission is to maintain a completely secure, fortified, and professional working atmosphere for your executives, personnel, inventory, and visitors.
+          </p>
+
+          <div className="space-y-2 pt-1">
+            <h3 className="text-[13.5px] font-black uppercase text-red-800 border-b border-red-100 pb-1 tracking-wider">
+              Licensed &amp; Experienced Leadership
+            </h3>
+            <ul className="text-[12.5px] text-slate-700 space-y-2 list-disc pl-5 leading-normal">
+              <li>Statutorily licensed across the state of Madhya Pradesh under the <strong>Private Security Agencies Regulation Act (PSARA)</strong>.</li>
+              <li>Disciplined, physically vetted security personnel and specialized facility management crews.</li>
+              <li>Mandatory background verification and police verification clearances completed for all deployed staff.</li>
+              <li>Full statutory benefits and timely compliance including <strong>EPF, ESIC, LWF, Uniform Kit &amp; Paid Holidays</strong>.</li>
+              <li>Over a decade of seasoned industry leadership under Managing Director {company.directorName}.</li>
+            </ul>
+          </div>
+
+          <div className="space-y-2 pt-1">
+            <h3 className="text-[13.5px] font-black uppercase text-red-800 border-b border-red-100 pb-1 tracking-wider">
+              Key Partnership Deliverables
+            </h3>
+            <ul className="text-[12.5px] text-slate-700 space-y-2 list-disc pl-5 leading-normal">
+              <li><strong>Fortified Perimeter Vigilance:</strong> Alert and vigilant static guards safeguarding all entry/exit gates and premises.</li>
+              <li><strong>Superior Hygiene &amp; Cleanliness:</strong> Highly trained housekeeping staff maintaining sterile and orderly premises.</li>
+              <li><strong>24/7 Command Patrol:</strong> Continuous day &amp; night patrol inspections by field supervisors to maintain duty alertness.</li>
+            </ul>
+          </div>
+
+          <p className="text-[12.5px] text-slate-800 pt-2 text-justify font-medium">
+            We are confident our tailored services will exceed the security expectations of <span className="uppercase font-black">{docClientName.replace(/\.+$/, '')}</span>. We look forward to executing this contract with maximum fidelity.
+          </p>
+        </div>
+      </div>
+
+      {renderFooter(
+        1,
+        <>
+          <p className="font-bold text-slate-900">Protection &bull; Security &bull; Facility Management</p>
+          <p className="font-black text-red-700 text-[10.5px]">संरक्षण एवं सुरक्षा</p>
+        </>,
+        'Managing Director'
+      )}
+    </div>
+  );
+
+  // ---------------- PAGE 2: OFFICIAL RATE SHEET ----------------
+  const wageRows: { sr: number; label: string; pct: string; value: (s: any) => number; strong?: boolean; shaded?: boolean }[] = [
+    { sr: 1, label: 'Basic Minimum Wages (26 Days)', pct: 'BASIC', value: s => s.base, strong: true },
+    { sr: 2, label: 'Additional 4 Hours Overtime Allowance', pct: formatPercent(statutoryRates.overtime), value: s => s.additional12Hrs },
+    { sr: 3, label: 'Reliever Charges (Weekly Day-Off)', pct: formatPercent(statutoryRates.reliever), value: s => s.reliever },
+    { sr: 4, label: 'Gross Guard Earnings (Subtotal A)', pct: '—', value: s => s.gross, strong: true, shaded: true },
+    { sr: 5, label: 'Provident Fund (EPF Employer Share)', pct: formatPercent(statutoryRates.epf), value: s => s.epf },
+    { sr: 6, label: 'ESIC Medical Insurance', pct: formatPercent(statutoryRates.esic), value: s => s.esic },
+    { sr: 7, label: 'Uniform Kit, LWF & Festival Leaves', pct: 'STAT', value: s => s.paidHoliday + s.uniform + s.lwf },
+    { sr: 8, label: 'Agency Service Charge', pct: formatPercent(effectiveMarginPercent), value: s => s.agencyMargin, strong: true }
+  ];
+
+  const renderPage2 = (mode: 'screen' | 'print') => (
+    <div className={sheetClass(mode)}>
+      <div className="space-y-3.5">
+        {renderHeader()}
+        {renderClientBlock('Quotation Prepared For:', 'Docket Ref:', docRef)}
+
+        {effectiveBillingModel === 'COMPLIANCE' ? (
+          <div className="w-full">
+            <table className="w-full text-left border-collapse border border-slate-300 text-[11px]">
+              <thead>
+                <tr className="bg-slate-100 text-slate-950 font-black uppercase border-b border-slate-300 text-[10px]">
+                  <th className="py-2.5 px-3 border-r border-slate-300 text-center w-8">SR</th>
+                  <th className="py-2.5 px-3 border-r border-slate-300">DESCRIPTION OF WAGE STRUCTURE (M.P. PSARA)</th>
+                  <th className="py-2.5 px-3 border-r border-slate-300 text-center w-16">IN %</th>
+                  {activeChosenServices.map((s: any, idx: number) => (
+                    <th key={idx} className="py-2.5 px-3 border-r border-slate-300 text-right">
+                      {s.label.toUpperCase()} ({shiftLabel(s.shift)})
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="font-mono text-slate-800 text-[10.5px]">
+                {wageRows.map(row => (
+                  <tr key={row.sr} className={`border-b border-slate-200 ${row.shaded ? 'bg-slate-50' : ''}`}>
+                    <td className={`py-1.5 px-3 border-r border-slate-300 text-center ${row.strong ? 'font-bold' : ''}`}>{row.sr}</td>
+                    <td className={`py-1.5 px-3 border-r border-slate-300 font-sans ${row.strong ? 'font-bold text-slate-950' : ''}`}>{row.label}</td>
+                    <td className={`py-1.5 px-3 border-r border-slate-300 text-center ${row.strong ? 'font-bold' : ''}`}>{row.pct}</td>
+                    {activeChosenServices.map((s: any, idx: number) => (
+                      <td key={idx} className={`py-1.5 px-3 border-r border-slate-300 text-right whitespace-nowrap ${row.strong ? 'font-black text-slate-950' : ''}`}>
+                        {formatINR(row.value(s.statutory || {}))}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                <tr className="bg-red-800 text-white font-black text-[11px]">
+                  <td className="py-2.5 px-3 border-red-900 text-center">9</td>
+                  <td className="py-2.5 px-3 border-red-900 font-sans uppercase">Cost To Company (Per Head / Month)</td>
+                  <td className="py-2.5 px-3 border-red-900 text-center font-mono">TOTAL</td>
+                  {activeChosenServices.map((s: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 border-red-900 text-right font-mono font-black text-amber-200 whitespace-nowrap text-xs">
+                      {formatINR(s.statutory?.grandTotal ?? s.perHeadRate)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="w-full">
+            <table className="w-full text-left border-collapse border border-slate-300 text-[12px]">
+              <thead>
+                <tr className="bg-red-800 text-white font-black uppercase text-[10px]">
+                  <th className="py-3 px-3.5 border-r border-red-900">Requested Service Role</th>
+                  <th className="py-3 px-3.5 border-r border-red-900 text-center">Shift Schedule</th>
+                  <th className="py-3 px-3.5 border-r border-red-900 text-center">Assigned Posts</th>
+                  <th className="py-3 px-3.5 border-r border-red-900 text-right">Monthly Rate / Head</th>
+                  <th className="py-3 px-3.5 text-right">Monthly Consideration</th>
+                </tr>
+              </thead>
+              <tbody className="font-bold text-slate-800 text-xs">
+                {activeChosenServices.map((service: any, idx: number) => (
+                  <tr key={idx} className="border-b border-slate-200">
+                    <td className="py-3 px-3.5 border-r border-slate-300 font-black text-slate-900">{service.label}</td>
+                    <td className="py-3 px-3.5 border-r border-slate-300 text-center font-mono text-[11px]">
+                      {service.shift === '12_HOURS' ? '12 Hours (30/31 Days)' : '08 Hours (30/31 Days)'}
+                    </td>
+                    <td className="py-3 px-3.5 border-r border-slate-300 text-center font-mono">
+                      {service.count} {service.count === 1 ? 'Post' : 'Posts'}
+                    </td>
+                    <td className="py-3 px-3.5 border-r border-slate-300 text-right font-mono text-red-700 font-black whitespace-nowrap">
+                      {formatINR(service.perHeadRate)}
+                    </td>
+                    <td className="py-3 px-3.5 text-right font-mono text-slate-950 font-black whitespace-nowrap">
+                      {formatINR(service.lineTotal)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Total Billing Strip */}
+        <div className="p-3.5 bg-red-50/90 border-2 border-red-200 rounded-xl flex justify-between items-center gap-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-red-950 uppercase tracking-wider">
+              TOTAL ALLOCATED DEPLOYMENTS: {activeChosenServices.map((s: any) => `${s.count} ${s.label}`).join(', ')}
+            </p>
+            <p className="text-[8.5px] font-black text-red-700 uppercase tracking-wider mt-0.5">
+              * AS PER GOVERNMENT REGULATIONS, GST WILL BE CHARGED EXTRA ON THE TOTAL MONTHLY BILLING.
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-[9px] font-mono font-bold uppercase text-slate-500">Total Monthly Billing</p>
+            <p className="text-lg font-mono font-black text-slate-950 whitespace-nowrap">{formatINR(totalMonthlyBilling)}</p>
+          </div>
+        </div>
+
+        {/* Terms & Conditions */}
+        <div className="space-y-1 text-[9.5px] text-slate-700 leading-normal pt-1">
+          <h4 className="text-[10px] font-black uppercase text-slate-950 border-b border-slate-200 pb-1 mb-1">
+            Terms &amp; Operational Conditions:
+          </h4>
+          <ol className="list-decimal pl-4 space-y-0.5 font-medium">
+            <li>The above rates are applicable for 30/31 days of continuous duty per calendar month.</li>
+            {effectiveBillingModel === 'COMPLIANCE' && (
+              <li>
+                Per day rates: {activeChosenServices.map((s: any) => `${s.label} (${shiftLabel(s.shift)}): ₹${Math.round(s.perHeadRate / 30).toLocaleString('en-IN')}`).join(', ')}.
+              </li>
+            )}
+            <li>This quotation is valid for 30 days from the date of submission.</li>
+            <li><strong className="text-red-700 font-bold">GST will be charged extra on the total monthly billing as per prevailing statutory rates.</strong></li>
+            <li>Bills submitted must be processed within 7 business days from presentation date. Any disputes can be resolved mutually.</li>
+            <li><em>Note: A 5% surcharge may be levied if invoices remain unsettled beyond the stipulated 7 days.</em></li>
+          </ol>
+        </div>
+      </div>
+
+      {renderFooter(
+        2,
+        <>
+          <p className="font-bold text-slate-900">PSA LICENSE: {company.psaraLicense}</p>
+          <p>GSTIN: {company.gstNumber}</p>
+        </>,
+        'Managing Director'
+      )}
+    </div>
+  );
+
+  // ---------------- PAGE 3: BILLING, PAYMENT & GST ----------------
+  const renderPage3 = (mode: 'screen' | 'print') => (
+    <div className={sheetClass(mode)}>
+      <div className="space-y-4">
+        {renderHeader()}
+
+        <div className="space-y-4 text-xs leading-relaxed text-slate-800">
+          <h3 className="text-sm font-black uppercase text-red-800 border-b border-red-200 pb-1 tracking-wider">
+            Billing, Payment &amp; GST Compliance Framework
+          </h3>
+
+          <div className="space-y-1.5 p-3.5 bg-slate-50/70 rounded-xl border border-slate-200">
+            <h4 className="font-black text-slate-950 uppercase text-[12px]">1. Billing &amp; Invoicing Protocol</h4>
+            <p className="text-slate-700 leading-relaxed text-justify text-[12px]">
+              We shall submit our certified commercial bill on the 1st of every calendar month. Payment must be released via Crossed Account Payee Cheque / NEFT / RTGS in favour of <strong>'{company.companyName}'</strong>.
+            </p>
+          </div>
+
+          <div className="space-y-1.5 p-3.5 bg-slate-50/70 rounded-xl border border-slate-200">
+            <h4 className="font-black text-slate-950 uppercase text-[12px]">2. GST &amp; Reverse Charge Mechanism (RCM)</h4>
+            <ul className="list-disc pl-5 text-slate-700 space-y-1 text-[12px]">
+              <li>If the client is registered under GST, the client must discharge GST under <strong>Reverse Charge Mechanism (RCM)</strong> as per Section 9(3) of the CGST Act, 2017.</li>
+              <li>If the client is unregistered under GST, we shall levy GST at the applicable rate (18%), and the client must pay this GST amount to our agency along with monthly service charges.</li>
+            </ul>
+          </div>
+
+          <div className="space-y-1.5 p-3.5 bg-slate-50/70 rounded-xl border border-slate-200">
+            <h4 className="font-black text-slate-950 uppercase text-[12px]">3. Timely Salary Disbursement to Guarding Personnel</h4>
+            <p className="text-slate-700 leading-relaxed text-justify text-[12px]">
+              Vidhya Security Force &amp; Housekeeping Services releases monthly salaries to deployed personnel upon receipt of payments from the client (collect-and-pay policy). Timely clearance of invoices ensures prompt staff remuneration.
+            </p>
+          </div>
+
+          <div className="space-y-1.5 p-3.5 bg-slate-50/70 rounded-xl border border-slate-200">
+            <h4 className="font-black text-slate-950 uppercase text-[12px]">4. Employment Restrictions &amp; Agency Placement</h4>
+            <p className="text-slate-700 leading-relaxed text-justify text-[12px]">
+              The client cannot directly or indirectly employ any of our deployed personnel without prior written authorization from our central management. If the client desires to absorb any staff directly, applicable Agency Placement Charges must be cleared.
+            </p>
+          </div>
+
+          <div className="space-y-1.5 p-3.5 bg-slate-50/70 rounded-xl border border-slate-200">
+            <h4 className="font-black text-slate-950 uppercase text-[12px]">5. Mandatory Wage Revisions</h4>
+            <p className="text-slate-700 leading-relaxed text-justify text-[12px]">
+              In case of any future statutory wage revision under the Contract Labour (R&amp;A) Act, 1970 or Minimum Wages Act published by the Labour Department of Madhya Pradesh, the billing rates shall be adjusted upward proportionally along with statutory arrears.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {renderFooter(
+        3,
+        <>
+          <p className="font-bold text-slate-900">Operational Contract Terms &bull; PSARA MP Compliant</p>
+          <p className="text-slate-400">Statutory Compliance Under MP Labour Regulations</p>
+        </>,
+        'Authorised Signatory'
+      )}
+    </div>
+  );
+
+  // ---------------- PAGE 4: MISSION & SERVICE COMMITMENT ----------------
+  const renderPage4 = (mode: 'screen' | 'print') => (
+    <div className={sheetClass(mode)}>
+      <div className="space-y-5">
+        {renderHeader()}
+
+        <div className="space-y-5 text-xs leading-relaxed text-slate-800">
+          <p className="text-slate-800 text-justify text-[13px] font-medium">
+            Vidhya Security Force &amp; Housekeeping Services is a premier private security and facility management organization providing the highest quality of Guarding Operations, Housekeeping Maintenance, Healthcare Support, and Electronic Perimeter Supervision.
+          </p>
+
+          <div className="p-6 bg-red-50/60 border-2 border-red-200 rounded-2xl space-y-2 text-center my-4">
+            <h4 className="text-[12px] font-black uppercase text-red-800 tracking-widest">
+              MISSION STATEMENT
+            </h4>
+            <p className="font-black text-slate-950 tracking-wide text-[13px] leading-relaxed uppercase">
+              "TO SATISFY AND SURPASS OUR CLIENTS' OPERATIONAL SAFETY REQUIREMENTS WITH ELABORATED &amp; PERSONALISED SERVICES UNDER THE HIGHEST PROFESSIONAL DISCIPLINE."
+            </p>
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <h4 className="text-[13px] font-black uppercase text-slate-950 border-b border-slate-200 pb-1">
+              Executive Assurance
+            </h4>
+            <p className="text-slate-700 leading-relaxed text-justify text-[12.5px] font-medium">
+              If given the opportunity, we assure you that our agency will prove to be an impenetrable line of defence against all security odds and operational adversities. It will be our greatest honour and pride to be associated with your esteemed organization for rendering efficient, prompt, and dedicated protection.
+            </p>
+            <p className="font-black text-red-800 uppercase tracking-wider pt-3 text-[14px]">
+              "YOUR SECURITY IS OUR SACRED RESPONSIBILITY"
+            </p>
+          </div>
+
+          <p className="text-slate-700 pt-3 text-[12.5px] font-medium">
+            Thank you for considering Vidhya Security Force &amp; Housekeeping Services. We look forward to executing this contract with the highest fidelity.
+          </p>
+        </div>
+      </div>
+
+      {renderFooter(
+        4,
+        <>
+          <p className="font-bold text-slate-900">Service Commitment &bull; Quality Management</p>
+          <p className="text-slate-400">Vigilance &amp; Central Escalation Protocol</p>
+        </>,
+        'Authorised Signatory',
+        true
+      )}
+    </div>
+  );
+
+  // ---------------- PAGE 5: STATUTORY ACCREDITATIONS ----------------
+  const registrations: [string, string][] = [
+    ['Private Security Agency License No (PSARA M.P.)', company.psaraLicense],
+    ['Labour Commissioner Registration No', company.labourRegNo],
+    ['Employee Provident Fund (EPF Establishment Code)', company.epfCode],
+    ['Employees State Insurance Corporation (ESIC Code)', company.esicRegNo],
+    ['GST Registration Number (GSTIN)', company.gstNumber],
+    ['Professional Tax (P.T.) License Number', company.ptLicenseNo],
+    ['Income Tax Permanent Account Number (PAN)', company.panNumber],
+    ['Executive Managing Director', company.directorName.toUpperCase()]
+  ];
+
+  const renderPage5 = (mode: 'screen' | 'print') => (
+    <div className={sheetClass(mode)}>
+      <div className="space-y-4">
+        {renderHeader()}
+
+        <div className="space-y-4">
+          <div className="border-b border-red-200 pb-1.5 flex items-center gap-2">
+            <ShieldCheck size={20} className="text-red-800" />
+            <h3 className="text-sm font-black uppercase text-red-800 tracking-wider">
+              Statutory Accreditations &amp; Registrations
+            </h3>
+          </div>
+
+          <div className="border border-slate-300 rounded-xl overflow-hidden mt-3 shadow-xs">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-slate-950 font-black uppercase text-[11px] border-b border-slate-300">
+                  <th className="py-3 px-4 border-r border-slate-300 w-12 text-center">SR</th>
+                  <th className="py-3 px-4 border-r border-slate-300">REGULATORY ACCREDITATION / LICENSE</th>
+                  <th className="py-3 px-4 text-right font-mono">REGISTRATION / LICENSE NUMBER</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-[12px]">
+                {registrations.map(([label, value], idx) => (
+                  <tr key={label} className={idx % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}>
+                    <td className="py-3 px-4 border-r border-slate-300 text-center font-bold">{idx + 1}</td>
+                    <td className="py-3 px-4 border-r border-slate-300 font-bold text-slate-800">{label}</td>
+                    <td className="py-3 px-4 text-right font-mono font-black text-slate-950">{value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-[11.5px] text-slate-600 font-medium pt-3 leading-relaxed text-justify">
+            All statutory registrations and operational records are updated and maintained in full accordance with the state government requirements of Madhya Pradesh and the central governing laws of India.
+          </p>
+        </div>
+      </div>
+
+      {renderFooter(
+        5,
+        <>
+          <p className="font-bold text-slate-900">Certified Statutory Registrations</p>
+          <p className="text-red-700 font-bold uppercase text-[10px]">Government of Madhya Pradesh Compliant</p>
+        </>,
+        'Managing Director'
+      )}
+    </div>
+  );
+
+  const renderPage = (pageNo: PageNo, mode: 'screen' | 'print') => {
+    switch (pageNo) {
+      case 1: return renderPage1(mode);
+      case 2: return renderPage2(mode);
+      case 3: return renderPage3(mode);
+      case 4: return renderPage4(mode);
+      case 5: return renderPage5(mode);
+      default: return null;
+    }
+  };
+
+  const printDisabled = docketIssues.length > 0;
 
   return (
     <div className="w-full space-y-6 px-1 sm:px-2 pb-16 animate-in fade-in duration-200">
-
-      {/* Embedded Pixel-Perfect A4 Print Rules & Exact Page Splitting */}
-      <style>{`
-        /* Global A4 @page */
-        @page {
-          size: A4 portrait;
-          margin: 8mm 10mm;
-        }
-
-        @media print {
-          html, body {
-            background: #fff !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 210mm !important;
-            height: auto !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            font-size: 10pt !important;
-            color-adjust: exact !important;
-          }
-
-          /* Utility: hide interactive UI in print */
-          .print-hidden, .no-print, .print-hide {
-            display: none !important;
-            visibility: hidden !important;
-            opacity: 0 !important;
-            height: 0 !important;
-            width: 0 !important;
-            overflow: hidden !important;
-          }
-
-          /* Tailwind variant generated class escape for print:hidden usage in JSX */
-          .print\:hidden {
-            display: none !important;
-          }
-
-          /* Print container should match A4 width */
-          .print-container {
-            display: block !important;
-            width: 210mm !important;
-            margin: 0 auto !important;
-            padding: 0 !important;
-          }
-
-          /* Each A4 page box: strict sizing and page breaks.
-             277mm matches the on-screen box height below (297mm minus the
-             8mm+8mm @page margin), so preview and print line up exactly. */
-          .a4-page-box {
-            width: 210mm !important;
-            height: 277mm !important;
-            min-height: 277mm !important;
-            max-height: 277mm !important;
-            margin: 0 !important;
-            padding: 12mm 14mm !important;
-            page-break-after: always !important;
-            break-after: page !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            overflow: hidden !important;
-            box-sizing: border-box !important;
-            display: flex !important;
-            flex-direction: column !important;
-            background: white !important;
-            border: none !important;
-          }
-
-          /* Filler stays flexible in print too, so short pages keep their
-             footer anchored to the bottom instead of leaving a raw gap. */
-          .page-filler {
-            flex: 1 1 auto !important;
-          }
-
-          /* avoid leaving a trailing blank page */
-          .a4-page-box:last-of-type {
-            page-break-after: auto !important;
-            break-after: auto !important;
-          }
-
-          /* Keep critical blocks intact */
-          .avoid-break, .no-break, table, thead, tbody, tr, h1, h2, h3, p, .header, .footer {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
-
-          /* Make tables compact and avoid mid-row breaks when possible */
-          table { border-collapse: collapse !important; width: 100% !important; }
-          table th, table td { padding: 4px 6px !important; font-size: 9.5pt !important; }
-
-          /* Signature block pinned to bottom via flex layout -- ensure it doesn't float */
-          .signature-block { margin-top: 8px !important; margin-bottom: 0 !important; }
-        }
-      `}</style>
+      <style>{PRINT_CSS}</style>
 
       {/* Workspace Header Bar */}
       <div className="print:hidden bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -563,7 +1220,6 @@ export const CreateQuotation: React.FC = () => {
           </h1>
         </div>
 
-        {/* Action Tabs */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
@@ -617,7 +1273,6 @@ export const CreateQuotation: React.FC = () => {
                 <p className="text-xs text-slate-400">Choose required security and facility roles</p>
               </div>
 
-              {/* Billing Model Selector */}
               <div className="bg-[#FBFBF9] p-1 rounded-xl border border-slate-200 flex items-center gap-1">
                 <button
                   type="button"
@@ -641,7 +1296,6 @@ export const CreateQuotation: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveProposal} className="space-y-5">
-              {/* Linked Visit Selection */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
                   Select Logged Site Inspection
@@ -664,7 +1318,6 @@ export const CreateQuotation: React.FC = () => {
                 </div>
               </div>
 
-              {/* Client Information */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
@@ -703,13 +1356,15 @@ export const CreateQuotation: React.FC = () => {
                     value={clientPhone}
                     onChange={(e) => setClientPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                     placeholder="10-digit mobile"
-                    className="w-full px-3.5 py-2 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 outline-none focus:border-red-700"
+                    className={`w-full px-3.5 py-2 bg-[#FBFBF9] border rounded-xl text-xs font-mono font-bold text-slate-900 outline-none focus:border-red-700 ${
+                      clientPhone && !isValidIndianMobile(clientPhone) ? 'border-red-500' : 'border-slate-200'
+                    }`}
                   />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    Premises Address
+                    Premises Address <span className="text-red-600">*</span>
                   </label>
                   <input
                     value={clientAddress}
@@ -720,7 +1375,6 @@ export const CreateQuotation: React.FC = () => {
                 </div>
               </div>
 
-              {/* STATUTORY WAGE PRICING ENGINE TOGGLE */}
               {billingModel === 'COMPLIANCE' && (
                 <div className="space-y-3 pt-2">
                   <div className="bg-[#FBFBF9] p-4 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -773,71 +1427,51 @@ export const CreateQuotation: React.FC = () => {
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                        <div>
-                          <label className="text-[9px] font-mono text-slate-400 block mb-1">Guard Basic (12-Hr)</label>
-                          <input
-                            type="number"
-                            value={customBasicRates.GUARD.basic12}
-                            onChange={(e) => {
-                              setCustomBasicRates(p => ({ ...p, GUARD: { ...p.GUARD, basic12: Number(e.target.value) } }));
-                              setSelectedProposal(null);
-                            }}
-                            className="w-full p-2 bg-slate-950 border border-slate-700 rounded-lg font-mono font-bold text-white outline-none focus:border-amber-400"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[9px] font-mono text-slate-400 block mb-1">Guard Basic (8-Hr)</label>
-                          <input
-                            type="number"
-                            value={customBasicRates.GUARD.basic8}
-                            onChange={(e) => {
-                              setCustomBasicRates(p => ({ ...p, GUARD: { ...p.GUARD, basic8: Number(e.target.value) } }));
-                              setSelectedProposal(null);
-                            }}
-                            className="w-full p-2 bg-slate-950 border border-slate-700 rounded-lg font-mono font-bold text-white outline-none focus:border-amber-400"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[9px] font-mono text-slate-400 block mb-1">Supervisor (12-Hr)</label>
-                          <input
-                            type="number"
-                            value={customBasicRates.SUPERVISOR.basic12}
-                            onChange={(e) => {
-                              setCustomBasicRates(p => ({ ...p, SUPERVISOR: { ...p.SUPERVISOR, basic12: Number(e.target.value) } }));
-                              setSelectedProposal(null);
-                            }}
-                            className="w-full p-2 bg-slate-950 border border-slate-700 rounded-lg font-mono font-bold text-white outline-none focus:border-amber-400"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[9px] font-mono text-slate-400 block mb-1">Gunman (12-Hr)</label>
-                          <input
-                            type="number"
-                            value={customBasicRates.GUNMAN.basic12}
-                            onChange={(e) => {
-                              setCustomBasicRates(p => ({ ...p, GUNMAN: { ...p.GUNMAN, basic12: Number(e.target.value) } }));
-                              setSelectedProposal(null);
-                            }}
-                            className="w-full p-2 bg-slate-950 border border-slate-700 rounded-lg font-mono font-bold text-white outline-none focus:border-amber-400"
-                          />
-                        </div>
+                        {(Object.keys(DEFAULT_SERVICE_OPTIONS) as ServiceRoleType[])
+                          .filter((role) => enabledServices[role])
+                          .map((role) => {
+                            const shift = serviceConfigs[role].shift;
+                            const key = shift === '12_HOURS' ? 'basic12' : 'basic8';
+                            const value = customBasicRates[role][key];
+                            const minWage = resolveMinimumWage(role, shift);
+                            const belowMin = !(value > 0) || value < minWage;
+                            return (
+                              <div key={`${role}-${shift}`}>
+                                <label className="text-[9px] font-mono text-slate-400 block mb-1">
+                                  {DEFAULT_SERVICE_OPTIONS[role].label} ({shiftLabel(shift)})
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={Number.isFinite(value) ? value : ''}
+                                  onChange={(e) => {
+                                    const next = e.target.value === '' ? 0 : Number(e.target.value);
+                                    setCustomBasicRates(p => ({ ...p, [role]: { ...p[role], [key]: next } }));
+                                    setSelectedProposal(null);
+                                  }}
+                                  className={`w-full p-2 bg-slate-950 border rounded-lg font-mono font-bold text-white outline-none focus:border-amber-400 ${
+                                    belowMin ? 'border-red-500' : 'border-slate-700'
+                                  }`}
+                                />
+                                <span className={`text-[8.5px] font-mono block mt-0.5 ${belowMin ? 'text-red-400' : 'text-slate-500'}`}>
+                                  Min wage: {formatINR(minWage)}
+                                </span>
+                              </div>
+                            );
+                          })}
                       </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* DYNAMIC SERVICE SELECTION MATRIX */}
               <div className="pt-3 border-t border-slate-100 space-y-3">
                 <div>
                   <h4 className="text-xs font-black uppercase text-slate-900">
-                    Select Services To Quote (Only Checked Services Appear On Proposal)
+                    Select Services To Quote
                   </h4>
                   <p className="text-[10px] text-slate-400 font-medium">
-                    Check the role, set the quantity, and choose shift duration (12-Hour vs 8-Hour)
+                    Check the role, set the quantity, and choose shift duration
                   </p>
                 </div>
 
@@ -846,18 +1480,7 @@ export const CreateQuotation: React.FC = () => {
                     const isChecked = enabledServices[role];
                     const cfg = serviceConfigs[role];
                     const stat = calculateStatutoryRole(role, cfg.shift);
-
-                    let flatBase = cfg.shift === '12_HOURS' ? DEFAULT_SERVICE_OPTIONS[role].defaultFlat12 : DEFAULT_SERVICE_OPTIONS[role].defaultFlat8;
-                    if (role === 'GUARD') flatBase = cfg.shift === '12_HOURS' ? (settings?.flatGuard12 ?? flatBase) : (settings?.flatGuard8 ?? flatBase);
-                    if (role === 'SUPERVISOR') flatBase = cfg.shift === '12_HOURS' ? (settings?.flatSupervisor12 ?? flatBase) : (settings?.flatSupervisor8 ?? flatBase);
-                    if (role === 'GUNMAN') flatBase = cfg.shift === '12_HOURS' ? (settings?.flatGunman12 ?? flatBase) : (settings?.flatGunman8 ?? flatBase);
-                    if (role === 'HOUSEKEEPING') flatBase = confFallback(role, cfg.shift, flatBase);
-
-                    function confFallback(r: ServiceRoleType, s: string, defVal: number) {
-                      if (r === 'HOUSEKEEPING') return s === '12_HOURS' ? (settings?.flatHousekeeping12 ?? defVal) : (settings?.flatHousekeeping8 ?? defVal);
-                      return defVal;
-                    }
-
+                    const flatBase = resolveFlatRate(role, cfg.shift);
                     const perHead = billingModel === 'COMPLIANCE' ? stat.grandTotal : flatBase;
 
                     return (
@@ -872,7 +1495,11 @@ export const CreateQuotation: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
-                                setEnabledServices(p => ({ ...p, [role]: !p[role] }));
+                                const enabling = !enabledServices[role];
+                                setEnabledServices(p => ({ ...p, [role]: enabling }));
+                                if (enabling && serviceConfigs[role].count < 1) {
+                                  setServiceConfigs(p => ({ ...p, [role]: { ...p[role], count: 1 } }));
+                                }
                                 setSelectedProposal(null);
                               }}
                               className="text-red-700 cursor-pointer"
@@ -884,7 +1511,7 @@ export const CreateQuotation: React.FC = () => {
                                 {DEFAULT_SERVICE_OPTIONS[role].label}
                               </span>
                               <span className="text-[10px] font-mono text-slate-500">
-                                {cfg.shift === '12_HOURS' ? '12 Hours (Day/Night)' : '8 Hours (3-Shift Rotation)'} &bull; ₹{perHead.toLocaleString('en-IN')}/head
+                                {cfg.shift === '12_HOURS' ? '12 Hours (Day/Night)' : '8 Hours (3-Shift Rotation)'} &bull; {formatINR(perHead)}/head
                               </span>
                             </div>
                           </div>
@@ -915,9 +1542,10 @@ export const CreateQuotation: React.FC = () => {
                                 <input
                                   type="number"
                                   min={1}
+                                  max={MAX_POSTS_PER_ROLE}
                                   value={cfg.count}
                                   onChange={(e) => {
-                                    const count = Math.max(1, parseInt(e.target.value) || 1);
+                                    const count = Math.min(MAX_POSTS_PER_ROLE, Math.max(1, parseInt(e.target.value, 10) || 1));
                                     setServiceConfigs(p => ({
                                       ...p,
                                       [role]: { ...p[role], count }
@@ -929,7 +1557,7 @@ export const CreateQuotation: React.FC = () => {
                               </div>
 
                               <span className="text-xs font-mono font-black text-slate-900 w-24 text-right">
-                                ₹{(perHead * cfg.count).toLocaleString('en-IN')}
+                                {formatINR(perHead * cfg.count)}
                               </span>
                             </div>
                           )}
@@ -940,14 +1568,24 @@ export const CreateQuotation: React.FC = () => {
                 </div>
               </div>
 
-              {/* Summary Calculation Box */}
+              {builderErrors.length > 0 && (
+                <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 space-y-1">
+                  <p className="text-[10px] font-mono font-black uppercase text-red-800 tracking-wider">
+                    Please correct the following errors:
+                  </p>
+                  <ul className="list-disc pl-5 text-[11px] text-red-800 space-y-0.5">
+                    {builderErrors.map((err, i) => <li key={i}>{err}</li>)}
+                  </ul>
+                </div>
+              )}
+
               <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                 <div>
                   <span className="text-[10px] font-mono font-bold uppercase text-amber-900 block">
                     Calculated Monthly Consideration ({activeChosenServices.length} Roles Assigned)
                   </span>
                   <span className="text-2xl font-mono font-black text-slate-950 block">
-                    ₹{totalMonthlyBilling.toLocaleString('en-IN')}.00
+                    {formatINR(totalMonthlyBilling)}
                   </span>
                   <span className="text-[10px] font-bold text-red-700 uppercase tracking-wide block mt-0.5">
                     * GST extra on monthly billing
@@ -966,7 +1604,6 @@ export const CreateQuotation: React.FC = () => {
             </form>
           </div>
 
-          {/* ALL SAVED PROPOSALS SIDEBAR */}
           <div className="lg:col-span-4 bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-4">
             <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
               <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
@@ -1018,7 +1655,7 @@ export const CreateQuotation: React.FC = () => {
                       </p>
 
                       <div className="flex items-center justify-between text-[10px] font-mono mt-1.5 pt-1.5 border-t border-slate-100">
-                        <span className="font-bold text-slate-900">₹{Number(total).toLocaleString('en-IN')}/mo</span>
+                        <span className="font-bold text-slate-900">{formatINR(Number(total))}/mo</span>
                         <span className="text-red-700 font-bold hover:underline">View Docket &rarr;</span>
                       </div>
                     </div>
@@ -1031,14 +1668,11 @@ export const CreateQuotation: React.FC = () => {
       )}
 
       {/* ========================================================= */}
-      {/* 2. PRINTABLE A4 PREVIEW (PAGE BY PAGE & FULL BUNDLE)      */}
+      {/* 2. A4 PREVIEW (FULL BUNDLE & PAGE NAVIGATION)              */}
       {/* ========================================================= */}
       {viewMode === 'PREVIEW' && (
         <div className="max-w-4xl mx-auto space-y-6">
-
-          {/* Top Control Bar with Page Switchers & Print Triggers */}
           <div className="print:hidden bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col gap-4">
-
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-mono font-bold text-slate-500">Ref:</span>
@@ -1085,9 +1719,24 @@ export const CreateQuotation: React.FC = () => {
               </div>
             </div>
 
-            {/* Page Navigation & Individual Page Print Bar */}
+            {docketIssues.length > 0 ? (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 space-y-1">
+                <p className="text-[10px] font-mono font-black uppercase text-red-800 tracking-wider flex items-center gap-1.5">
+                  <AlertTriangle size={13} />
+                  Printing blocked — {docketIssues.length} validation issue{docketIssues.length > 1 ? 's' : ''}
+                </p>
+                <ul className="list-disc pl-5 text-[11px] text-red-800 space-y-0.5">
+                  {docketIssues.map((issue, i) => <li key={i}>{issue}</li>)}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-[10px] font-mono font-bold uppercase text-emerald-700 tracking-wider flex items-center gap-1.5">
+                <ShieldCheck size={13} />
+                Validation passed — client details, wage maths, totals, GSTIN &amp; PAN verified
+              </p>
+            )}
+
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-              {/* Web View Filter Tabs */}
               <div className="flex items-center gap-1 bg-[#FBFBF9] p-1 rounded-xl border border-slate-200 flex-wrap">
                 <span className="text-[10px] font-mono font-bold text-slate-400 px-2 uppercase">View Mode:</span>
                 <button
@@ -1100,7 +1749,7 @@ export const CreateQuotation: React.FC = () => {
                   <Layers size={12} />
                   <span>All 5 Pages</span>
                 </button>
-                {([1, 2, 3, 4, 5] as const).map((pNum) => (
+                {ALL_PAGES.map((pNum) => (
                   <button
                     key={pNum}
                     type="button"
@@ -1114,21 +1763,22 @@ export const CreateQuotation: React.FC = () => {
                 ))}
               </div>
 
-              {/* Direct Print Buttons */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => handlePrint('RATE')}
-                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  disabled={printDisabled}
+                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <FileText size={13} className="text-amber-300" />
-                  <span>Print Rate Sheet Only</span>
+                  <span>Print Rate Sheet (1 Page)</span>
                 </button>
                 {activePageTab !== 'ALL' && (
                   <button
                     type="button"
                     onClick={() => handlePrint(activePageTab)}
-                    className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    disabled={printDisabled}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <FileText size={13} className="text-amber-300" />
                     <span>Print Page {activePageTab} Only</span>
@@ -1138,515 +1788,34 @@ export const CreateQuotation: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handlePrint('ALL')}
-                  className="px-4 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  disabled={printDisabled}
+                  className="px-4 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Printer size={13} className="text-amber-300" />
                   <span>Print Full 5-Page PDF</span>
                 </button>
               </div>
             </div>
-
           </div>
 
-          {/* ========================================================================= */}
-          {/* THE 5-PAGE PRINT DOSSIER                                                  */}
-          {/* ========================================================================= */}
-          <div className="print-container space-y-8 print:space-y-0 flex flex-col items-center">
-
-            {/* PAGE 1: INTRODUCTION LETTER */}
-            {(activePageTab === 'ALL' || activePageTab === 1) && (
-              <div className="a4-page-box bg-white w-[210mm] min-h-[277mm] max-h-[277mm] p-[12mm_14mm] rounded-2xl border border-slate-200 shadow-xl flex flex-col text-slate-900 font-sans box-border overflow-hidden">
-                <div className="space-y-4">
-                  <PrintHeader />
-
-                  {/* Client & Date Block */}
-                  <div className="bg-[#F8F9FA] p-3 rounded-xl border border-slate-200 flex justify-between items-start text-xs">
-                    <div>
-                      <p className="text-[8.5px] font-mono font-bold text-slate-400 uppercase">To Establishment:</p>
-                      <p className="text-xs font-black text-slate-950 uppercase">{selectedProposal?.client_name || clientName || 'ESTEEMED CLIENT'}</p>
-                      <p className="text-[10px] text-slate-600 mt-0.5">Address: {selectedProposal?.client_address || clientAddress || 'Commercial Complex, Indore (M.P.)'}</p>
-                    </div>
-                    <div className="text-right font-mono text-[9px]">
-                      <p className="text-slate-400 uppercase font-bold">Proposal Date:</p>
-                      <p className="font-black text-slate-900">{new Date().toLocaleDateString('en-GB')}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 text-xs leading-relaxed">
-                    <p className="font-medium text-slate-800 text-justify">
-                      <strong>Objective:</strong> Vidhya Security Force and Housekeeping Services is committed to providing <strong className="uppercase">{selectedProposal?.client_name || clientName || 'Your Establishment'}</strong> with exceptional security and housekeeping solutions[cite: 1]. We aim to create a safe, clean, and secure work environment for your employees and operations[cite: 1].
-                    </p>
-
-                    <div className="space-y-2 pt-1">
-                      <h3 className="text-xs font-black uppercase text-red-800 border-b border-red-100 pb-1 tracking-wider">
-                        Licensed &amp; Experienced Leadership
-                      </h3>
-                      <ul className="text-[11px] text-slate-700 space-y-1.5 list-disc pl-5 leading-normal">
-                        <li>Licensed throughout Madhya Pradesh under <strong>PSARA (copy enclosed)</strong>[cite: 1].</li>
-                        <li>Hardworking, responsible security guards and verified housekeeping staff[cite: 1].</li>
-                        <li>Thorough background verification and police records clearance check[cite: 1].</li>
-                        <li>Competitive salaries and statutory benefits (including <strong>EPF &amp; ESIC</strong>)[cite: 1].</li>
-                        <li>10+ years of security industry leadership under Director Anil Dhariwal[cite: 1].</li>
-                      </ul>
-                    </div>
-
-                    <div className="space-y-2 pt-1">
-                      <h3 className="text-xs font-black uppercase text-red-800 border-b border-red-100 pb-1 tracking-wider">
-                        Key Partnership Benefits
-                      </h3>
-                      <ul className="text-[11px] text-slate-700 space-y-1.5 list-disc pl-5 leading-normal">
-                        <li><strong>Enhanced Security:</strong> Vigilant guards protect your property, inventory, and personnel[cite: 1].</li>
-                        <li><strong>Superior Cleanliness:</strong> Skilled housekeeping maintains a clean, hygienic environment[cite: 1].</li>
-                        <li><strong>Unwavering Professionalism:</strong> Consistent, high-quality services with 24/7 central patrol supervision[cite: 1].</li>
-                      </ul>
-                    </div>
-
-                    <p className="text-[11px] text-slate-700 pt-2 text-justify">
-                      We are confident our services will exceed the expectations of <span className="uppercase font-bold">{selectedProposal?.client_name || clientName}</span>[cite: 1]. Let us discuss your operational requirements and provide a customized deployment[cite: 1].
-                    </p>
-                  </div>
-                </div>
-
-                <PageFiller />
-
-                {/* Footer Page 1 */}
-                <div className="pt-3 border-t border-slate-200 flex justify-between items-end">
-                  <div className="text-[8.5px] font-mono text-slate-500">
-                    <p>Protection &bull; Security &bull; Facility Management[cite: 1]</p>
-                    <p className="font-bold text-red-700">संरक्षण एवं सुरक्षा[cite: 1]</p>
-                    <p className="text-[7.5px] text-slate-400 mt-1">Page 1 of 5 &bull; Operational Presentation</p>
-                  </div>
-                  <div className="text-center space-y-0.5">
-                    <div className="w-20 h-10 border border-dashed border-slate-300 rounded mx-auto flex items-center justify-center p-0.5">
-                      {settings?.sealImage ? <img src={settings.sealImage} alt="Seal" className="max-h-full max-w-full" /> : <span className="text-[7px] font-mono text-slate-400">[ SEAL / STAMP ]</span>}
-                    </div>
-                    <p className="text-[10px] font-black uppercase">{settings?.directorName || 'Anil Dhariwal'}</p>
-                    <p className="text-[8px] font-mono text-slate-500 uppercase">Managing Director[cite: 1]</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* PAGE 2: OFFICIAL RATE SHEET (WAGE STRUCTURE) */}
-            {(activePageTab === 'ALL' || activePageTab === 2) && (
-              <div className="a4-page-box bg-white w-[210mm] min-h-[277mm] max-h-[277mm] p-[12mm_14mm] rounded-2xl border border-slate-200 shadow-xl flex flex-col text-slate-900 font-sans box-border overflow-hidden">
-                <div className="space-y-3">
-                  <PrintHeader />
-
-                  {/* Client Reference Box */}
-                  <div className="bg-[#F8F9FA] p-2 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
-                    <div>
-                      <p className="text-[8px] font-mono font-bold text-slate-400 uppercase">Quotation Prepared For:</p>
-                      <p className="text-[11px] font-black text-slate-950 uppercase">{selectedProposal?.client_name || clientName || 'ESTEEMED CLIENT'}</p>
-                      <p className="text-[9px] text-slate-600 truncate max-w-sm">{selectedProposal?.client_address || clientAddress || 'Commercial Complex, Indore (M.P.)'}</p>
-                    </div>
-                    <div className="text-right font-mono text-[8.5px]">
-                      <p className="text-slate-400 uppercase font-bold">Docket Ref:</p>
-                      <p className="font-black text-slate-900">{selectedProposal?.id || 'PROP-HQ-DIRECT'}</p>
-                    </div>
-                  </div>
-
-                  {/* --- A. STATUTORY PSARA COMPLIANCE TABLE --- */}
-                  {effectiveBillingModel === 'COMPLIANCE' ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse border border-slate-300 text-[9.5px]">
-                        <thead>
-                          <tr className="bg-slate-100 text-slate-950 font-black uppercase border-b border-slate-300 text-[8.5px]">
-                            <th className="p-1 border-r border-slate-300 text-center w-7">Sr</th>
-                            <th className="p-1 border-r border-slate-300">Description of Wage Structure (M.P. PSARA)[cite: 1]</th>
-                            <th className="p-1 border-r border-slate-300 text-center w-14">In %</th>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <th key={idx} className="p-1 border-r border-slate-300 text-right">
-                                {s.label} ({s.shift === '12_HOURS' ? '12 Hrs' : '08 Hrs'})
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200 font-mono text-slate-800 text-[9px]">
-                          <tr>
-                            <td className="p-1 border-r border-slate-300 text-center font-bold">1</td>
-                            <td className="p-1 border-r border-slate-300 font-sans font-bold">Basic Minimum Wages (26 Days)[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center font-bold">BASIC</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right">
-                                ₹{s.statutory.base.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr>
-                            <td className="p-1 border-r border-slate-300 text-center">2</td>
-                            <td className="p-1 border-r border-slate-300 font-sans">Additional 4 Hours Overtime Allowance[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center">35%</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right">
-                                ₹{s.statutory.additional12Hrs.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr>
-                            <td className="p-1 border-r border-slate-300 text-center">3</td>
-                            <td className="p-1 border-r border-slate-300 font-sans">Reliever Charges (Weekly Day-Off)[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center">16.67%</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right">
-                                ₹{s.statutory.reliever.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr className="bg-slate-50 font-bold">
-                            <td className="p-1 border-r border-slate-300 text-center">4</td>
-                            <td className="p-1 border-r border-slate-300 font-sans">Gross Guard Earnings (Subtotal A)[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center">-</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right font-bold text-slate-900">
-                                ₹{s.statutory.gross.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr>
-                            <td className="p-1 border-r border-slate-300 text-center">5</td>
-                            <td className="p-1 border-r border-slate-300 font-sans">Provident Fund (EPF Employer)[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center">13%</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right">
-                                ₹{s.statutory.epf.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr>
-                            <td className="p-1 border-r border-slate-300 text-center">6</td>
-                            <td className="p-1 border-r border-slate-300 font-sans">ESIC Medical Insurance[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center">3.25%</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right">
-                                ₹{s.statutory.esic.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr>
-                            <td className="p-1 border-r border-slate-300 text-center">7</td>
-                            <td className="p-1 border-r border-slate-300 font-sans">Uniform Kit, LWF &amp; Festival Leaves[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center">STAT</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right">
-                                ₹{(s.statutory.paidHoliday + s.statutory.uniform + s.statutory.lwf).toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr>
-                            <td className="p-1 border-r border-slate-300 text-center">8</td>
-                            <td className="p-1 border-r border-slate-300 font-sans font-bold">Agency Service Charge[cite: 1]</td>
-                            <td className="p-1 border-r border-slate-300 text-center font-bold">{serviceChargePercent}%</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-slate-300 text-right font-bold">
-                                ₹{s.statutory.agencyMargin.toFixed(2)}
-                              </td>
-                            ))}
-                          </tr>
-                          <tr className="bg-red-800 text-white font-black text-[9.5px]">
-                            <td className="p-1 border-r border-red-900 text-center">9</td>
-                            <td className="p-1 border-r border-red-900 font-sans uppercase">Cost To Company (Per Head / Month)[cite: 1]</td>
-                            <td className="p-1 border-r border-red-900 text-center font-mono">[R][cite: 1]</td>
-                            {activeChosenServices.map((s: any, idx: number) => (
-                              <td key={idx} className="p-1 border-r border-red-900 text-right font-mono font-black">
-                                ₹{s.statutory.grandTotal.toLocaleString('en-IN')}.00
-                              </td>
-                            ))}
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    /* --- B. COMMERCIAL FLAT RATE TABLE --- */
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse border border-slate-300 text-xs">
-                        <thead>
-                          <tr className="bg-red-800 text-white font-black uppercase text-[8.5px]">
-                            <th className="p-2 border-r border-red-900">Requested Service Role</th>
-                            <th className="p-2 border-r border-red-900 text-center">Shift Schedule</th>
-                            <th className="p-2 border-r border-red-900 text-center">Assigned Posts</th>
-                            <th className="p-2 border-r border-red-900 text-right">Monthly Rate / Head</th>
-                            <th className="p-2 text-right">Monthly Consideration</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200 font-bold text-slate-800 text-xs">
-                          {activeChosenServices.map((service: any, idx: number) => (
-                            <tr key={idx}>
-                              <td className="p-2 border-r border-slate-300 font-black text-slate-900">
-                                {service.label}
-                              </td>
-                              <td className="p-2 border-r border-slate-300 text-center font-mono text-[10px]">
-                                {service.shift === '12_HOURS' ? '12 Hours (30/31 Days)' : '08 Hours (30/31 Days)'}
-                              </td>
-                              <td className="p-2 border-r border-slate-300 text-center font-mono">
-                                {service.count} Posts
-                              </td>
-                              <td className="p-2 border-r border-slate-300 text-right font-mono text-red-700 font-black">
-                                ₹{service.perHeadRate.toLocaleString('en-IN')}.00
-                              </td>
-                              <td className="p-2 text-right font-mono text-slate-950 font-black">
-                                ₹{service.lineTotal.toLocaleString('en-IN')}.00
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {/* Total Billing Strip */}
-                  <div className="p-2 bg-red-50/70 border border-red-200 rounded-xl flex justify-between items-center">
-                    <div>
-                      <p className="text-[9px] font-bold text-red-900 uppercase tracking-wider">
-                        TOTAL ALLOCATED DEPLOYMENTS: {activeChosenServices.map((s: any) => `${s.count} ${s.label}`).join(', ')}[cite: 1]
-                      </p>
-                      <p className="text-[8px] font-black text-red-700 uppercase tracking-wider mt-0.5">
-                        * AS PER GOVERNMENT REGULATIONS, GST WILL BE CHARGED EXTRA ON THE TOTAL MONTHLY BILLING.[cite: 1]
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[8px] font-mono font-bold uppercase text-slate-500">Total Monthly Billing:[cite: 1]</p>
-                      <p className="text-base font-mono font-black text-slate-950">₹{totalMonthlyBilling.toLocaleString('en-IN')}.00[cite: 1]</p>
-                    </div>
-                  </div>
-
-                  {/* Primary Terms & Conditions */}
-                  <div className="space-y-0.5 text-[8.5px] text-slate-700 leading-snug">
-                    <h4 className="text-[9px] font-black uppercase text-slate-900 border-b border-slate-200 pb-0.5 mb-1">
-                      Terms &amp; Conditions:[cite: 1]
-                    </h4>
-                    <ol className="list-decimal pl-4 space-y-0.5">
-                      <li>The above rates are applicable for 30/31 days of duty per calendar month.[cite: 1]</li>
-                      {effectiveBillingModel === 'COMPLIANCE' && (
-                        <li>
-                          Per day rates: {activeChosenServices.map((s: any) => `${s.label} (${s.shift === '12_HOURS' ? '12 Hrs' : '08 Hrs'}): ₹${Math.round(s.perHeadRate / 30)}`).join(', ')}.[cite: 1]
-                        </li>
-                      )}
-                      <li>This quotation is valid for 30 days from the date of submission.[cite: 1]</li>
-                      <li><strong className="text-red-700">GST will be charged extra on the total monthly billing as per prevailing statutory rates.</strong>[cite: 1]</li>
-                      <li>Bills submitted must be processed within 7 days from the date of submission. Any disputes raised can be resolved mutually through discussion.[cite: 1]</li>
-                      <li><em>Note: A 5% extra charge will be levied if there is a delay in passing the bill beyond the stipulated 7 days.</em>[cite: 1]</li>
-                    </ol>
-                  </div>
-                </div>
-
-                <PageFiller />
-
-                {/* Footer Page 2 */}
-                <div className="pt-2 border-t border-slate-200 flex justify-between items-end">
-                  <div className="text-[8px] font-mono text-slate-500">
-                    <p>PSA LICENSE: {settings?.psaraLicense || 'PSA/L/74/MP/2023/FEB/3/425'}[cite: 1]</p>
-                    <p>GSTIN: {settings?.gstNumber || '23AQRPD06520221'}[cite: 1]</p>
-                    <p className="text-[7.5px] text-slate-400 mt-0.5">Page 2 of 5 &bull; Commercial Wage Proposal</p>
-                  </div>
-                  <div className="text-center space-y-0.5">
-                    <div className="w-20 h-10 border border-dashed border-slate-300 rounded mx-auto flex items-center justify-center p-0.5">
-                      {settings?.sealImage ? <img src={settings.sealImage} alt="Seal" className="max-h-full max-w-full" /> : <span className="text-[7px] font-mono text-slate-400">[ SEAL / STAMP ]</span>}
-                    </div>
-                    <p className="text-[9.5px] font-black uppercase">{settings?.directorName || 'Anil Dhariwal'}</p>
-                    <p className="text-[7.5px] font-mono text-slate-500 uppercase">Managing Director[cite: 1]</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* PAGE 3: BILLING, PAYMENT & GST */}
-            {(activePageTab === 'ALL' || activePageTab === 3) && (
-              <div className="a4-page-box bg-white w-[210mm] min-h-[277mm] max-h-[277mm] p-[12mm_14mm] rounded-2xl border border-slate-200 shadow-xl flex flex-col text-slate-900 font-sans box-border overflow-hidden">
-                <div className="space-y-4">
-                  <PrintHeader />
-
-                  <div className="space-y-4 text-xs">
-                    <h3 className="text-xs font-black uppercase text-red-800 border-b border-red-100 pb-1 tracking-wider">
-                      2. Billing, Payment &amp; GST Compliance[cite: 1]
-                    </h3>
-
-                    <div className="space-y-1">
-                      <h4 className="font-black text-slate-900 uppercase text-[11px]">Billing &amp; Payment:[cite: 1]</h4>
-                      <p className="text-slate-700 leading-relaxed text-justify text-[11px]">
-                        We shall submit our bills on the 1st of every month[cite: 1]. Payment must be made via crossed cheque / NEFT / RTGS in favor of <strong>'Vidhya Security Force &amp; Housekeeping Services.'</strong>[cite: 1]
-                      </p>
-                    </div>
-
-                    <div className="space-y-1">
-                      <h4 className="font-black text-slate-900 uppercase text-[11px]">GST &amp; Reverse Charge Mechanism (RCM):[cite: 1]</h4>
-                      <ul className="list-disc pl-5 text-slate-700 space-y-1 text-[11px]">
-                        <li>If the client is registered under GST, the client must pay GST under <strong>Reverse Charge Mechanism (RCM)</strong> as per Section 9(3) of the CGST Act, 2017[cite: 1].</li>
-                        <li>If the client is unregistered under GST, we shall levy GST at the applicable rate (18%), and the client must pay this GST amount to us along with the monthly service charges[cite: 1].</li>
-                      </ul>
-                    </div>
-
-                    <div className="space-y-1">
-                      <h4 className="font-black text-slate-900 uppercase text-[11px]">Payment of Salary to Security Staff:[cite: 1]</h4>
-                      <p className="text-slate-700 leading-relaxed text-justify text-[11px]">
-                        Vidhya Security Force &amp; Housekeeping Services will pay salary to deployed personnel only upon receipt of payment from the client (collect-and-pay policy)[cite: 1]. Any delay in payment by the client will result in an equivalent delay in salary disbursement to deployed staff[cite: 1].
-                      </p>
-                    </div>
-
-                    <div className="space-y-1">
-                      <h4 className="font-black text-slate-900 uppercase text-[11px]">Employment Restrictions:[cite: 1]</h4>
-                      <p className="text-slate-700 leading-relaxed text-justify text-[11px]">
-                        The client cannot directly or indirectly employ any of our deployed security personnel without the prior consent and written confirmation of our authorized signatory[cite: 1]. If the client wishes to hire our personnel, they must pay the applicable Agency Placement Charges as per company rules[cite: 1].
-                      </p>
-                    </div>
-
-                    <div className="space-y-1 pt-1">
-                      <h4 className="font-black text-slate-900 uppercase text-[11px]">3. Mandatory Wages Revision:[cite: 1]</h4>
-                      <p className="text-slate-700 leading-relaxed text-justify text-[11px]">
-                        In case in future any wage revision takes place under Contract Labour (R&amp;A) Act, 1970 or Minimum Wages Act or any other labour legislation directly affecting employee cost, the principal employer reimburses the same together with statutory arrears and amends the agreement terms corresponding to such increase[cite: 1].
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <PageFiller />
-
-                {/* Footer Page 3 */}
-                <div className="pt-3 border-t border-slate-200 flex justify-between items-end">
-                  <div className="text-[8.5px] font-mono text-slate-500">
-                    <p>Page 3 of 5 &bull; Operational Contract Terms[cite: 1]</p>
-                    <p className="text-slate-400">Statutory Compliance Under MP Labour Regulations</p>
-                  </div>
-                  <div className="text-center space-y-0.5">
-                    <div className="w-20 h-10 border border-dashed border-slate-300 rounded mx-auto flex items-center justify-center p-0.5">
-                      {settings?.sealImage ? <img src={settings.sealImage} alt="Seal" className="max-h-full max-w-full" /> : <span className="text-[7px] font-mono text-slate-400">[ SEAL / STAMP ]</span>}
-                    </div>
-                    <p className="text-[10px] font-black uppercase">{settings?.directorName || 'Anil Dhariwal'}</p>
-                    <p className="text-[8px] font-mono text-slate-500 uppercase">Authorised Signatory[cite: 1]</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* PAGE 4: MISSION STATEMENT & SERVICE COMMITMENT */}
-            {(activePageTab === 'ALL' || activePageTab === 4) && (
-              <div className="a4-page-box bg-white w-[210mm] min-h-[277mm] max-h-[277mm] p-[12mm_14mm] rounded-2xl border border-slate-200 shadow-xl flex flex-col text-slate-900 font-sans box-border overflow-hidden">
-                <div className="space-y-4">
-                  <PrintHeader />
-
-                  <div className="space-y-4 text-xs">
-                    <p className="text-slate-800 leading-relaxed text-justify text-[11px]">
-                      Vidhya Security Force &amp; Housekeeping Services is a premier facility management company providing the highest quality of Guarding Operations, Housekeeping Maintenance, Healthcare Support, and Electronic Perimeter Supervision[cite: 1].
-                    </p>
-
-                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-center my-3">
-                      <h4 className="text-xs font-black uppercase text-red-800 tracking-widest">
-                        MISSION STATEMENT[cite: 1]
-                      </h4>
-                      <p className="font-bold text-slate-900 tracking-wide text-xs leading-normal">
-                        "TO SATISFY AND SURPASS OUR CLIENTS' REQUIREMENTS WITH ELABORATED &amp; PERSONALISED SERVICES UNDER THE HIGHEST PROFESSIONAL STANDARDS."[cite: 1]
-                      </p>
-                    </div>
-
-                    <div className="space-y-2 pt-1">
-                      <h4 className="text-xs font-black uppercase text-slate-900 border-b border-slate-200 pb-1">
-                        Executive Assurance[cite: 1]
-                      </h4>
-                      <p className="text-slate-700 leading-relaxed text-justify text-[11px]">
-                        If the chance is given, we assure you that our agency will prove to be the finest source of defence against all security odds and adversities[cite: 1]. It will be our pleasure and pride to be associated with your esteemed organization for rendering efficient, prompt, dedicated, and sincere protection[cite: 1].
-                      </p>
-                      <p className="font-black text-red-800 uppercase tracking-wider pt-2 text-xs">
-                        "YOUR SECURITY IS OUR SACRED RESPONSIBILITY"[cite: 1]
-                      </p>
-                    </div>
-
-                    <p className="text-slate-700 pt-2 text-[11px]">
-                      Thank you for considering Vidhya Security Force &amp; Housekeeping Services[cite: 1]. We look forward to executing this contract with highest fidelity[cite: 1].
-                    </p>
-                  </div>
-                </div>
-
-                <PageFiller />
-
-                {/* Footer Page 4 */}
-                <div className="pt-3 border-t border-slate-200 flex justify-between items-end">
-                  <div className="text-[8.5px] font-mono text-slate-500">
-                    <p>Page 4 of 5 &bull; Service Commitment[cite: 1]</p>
-                    <p className="text-slate-400">Quality Management &amp; Vigilance Protocol</p>
-                  </div>
-                  <div className="text-center space-y-0.5">
-                    <p className="text-[8.5px] font-bold text-slate-600 uppercase">FOR VIDHYA SECURITY FORCE &amp; HOUSEKEEPING SERVICES[cite: 1]</p>
-                    <div className="w-20 h-10 border border-dashed border-slate-300 rounded mx-auto flex items-center justify-center p-0.5 mt-0.5">
-                      {settings?.sealImage ? <img src={settings.sealImage} alt="Seal" className="max-h-full max-w-full" /> : <span className="text-[7px] font-mono text-slate-400">[ SEAL / STAMP ]</span>}
-                    </div>
-                    <p className="text-[10px] font-black uppercase">{settings?.directorName || 'Anil Dhariwal'}</p>
-                    <p className="text-[8px] font-mono text-slate-500 uppercase">Authorised Signatory[cite: 1]</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* PAGE 5: STATUTORY ACCREDITATIONS & REGISTRATIONS */}
-            {(activePageTab === 'ALL' || activePageTab === 5) && (
-              <div className="a4-page-box bg-white w-[210mm] min-h-[277mm] max-h-[277mm] p-[12mm_14mm] rounded-2xl border border-slate-200 shadow-xl flex flex-col text-slate-900 font-sans box-border overflow-hidden">
-                <div className="space-y-4">
-                  <PrintHeader />
-
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-black uppercase text-red-800 border-b border-red-100 pb-1 tracking-wider">
-                      Statutory Accreditations &amp; Licenses[cite: 1]
-                    </h3>
-
-                    <div className="divide-y divide-slate-200 text-xs">
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">1. Private Security Agency License No (PSARA)</span>
-                        <span className="font-mono font-black text-slate-950">{settings?.psaraLicense || 'PSA/L/74/MP/2023/FEB/3/425'}</span>
-                      </div>
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">2. Labour Commissioner Registration No</span>
-                        <span className="font-mono font-black text-slate-950">{settings?.labourRegNo || 'INDO220426SE009839'}</span>
-                      </div>
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">3. Employee Provident Fund (EPF Code)</span>
-                        <span className="font-mono font-black text-slate-950">{settings?.epfCode || 'MPIND1462732000 / 18000232770'}</span>
-                      </div>
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">4. ESIC Corporation Registration</span>
-                        <span className="font-mono font-black text-slate-950">{settings?.esicRegNo || '18000237700000999'}</span>
-                      </div>
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">5. GST Registration Number (GSTIN)</span>
-                        <span className="font-mono font-black text-slate-950">{settings?.gstNumber || '23AQRPD06520221'}</span>
-                      </div>
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">6. Professional Tax (P.T.) License</span>
-                        <span className="font-mono font-black text-slate-950">{settings?.ptLicenseNo || '79479022051'}</span>
-                      </div>
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">7. Income Tax PAN Card</span>
-                        <span className="font-mono font-black text-slate-950">{settings?.panNumber || 'AQRPD0652Q'}</span>
-                      </div>
-                      <div className="py-2.5 flex justify-between items-center">
-                        <span className="font-bold text-slate-700">8. Managing Director</span>
-                        <span className="font-black text-slate-950 uppercase">{settings?.directorName || 'Anil Dhariwal'}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <PageFiller />
-
-                {/* Footer Page 5 */}
-                <div className="pt-3 border-t border-slate-200 flex justify-between items-end">
-                  <div className="text-[8.5px] font-mono text-slate-500">
-                    <p>Page 5 of 5 &bull; Certified Legal Document</p>
-                    <p className="text-red-700 font-bold uppercase">Government of Madhya Pradesh Compliant</p>
-                  </div>
-                  <div className="text-center space-y-0.5">
-                    <div className="w-20 h-10 border border-dashed border-slate-300 rounded mx-auto flex items-center justify-center p-0.5">
-                      {settings?.sealImage ? <img src={settings.sealImage} alt="Seal" className="max-h-full max-w-full" /> : <span className="text-[7px] font-mono text-slate-400">[ SEAL / STAMP ]</span>}
-                    </div>
-                    <p className="text-[10px] font-black uppercase">{settings?.directorName || 'Anil Dhariwal'}</p>
-                    <p className="text-[8px] font-mono text-slate-500 uppercase">Managing Director[cite: 1]</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
+          <div className="print:hidden w-full overflow-x-auto pb-4">
+            <div className="w-[210mm] mx-auto flex flex-col gap-8">
+              {visiblePages.map((pNum) => (
+                <React.Fragment key={pNum}>{renderPage(pNum, 'screen')}</React.Fragment>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
+      {viewMode === 'PREVIEW' && typeof document !== 'undefined' && createPortal(
+        <div id={PRINT_ROOT_ID} aria-hidden="true">
+          {pagesInPrintRoot.map((pNum) => (
+            <React.Fragment key={pNum}>{renderPage(pNum, 'print')}</React.Fragment>
+          ))}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

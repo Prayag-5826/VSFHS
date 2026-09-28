@@ -118,7 +118,7 @@ export const api = {
         };
       }
 
-      // 3. User Management (POST to insert new officer, GET to list, PATCH/DELETE for admin controls)
+      // 3. User Management
       if (endpoint.startsWith('/users')) {
         const urlSegments = endpoint.split('/').filter(Boolean);
         const targetUserId = urlSegments.length === 2 ? urlSegments[1] : null;
@@ -201,7 +201,7 @@ export const api = {
         return data || [];
       }
 
-      // 4. Visits & Inspection Logs (Full POST Insert & Fail-Safe GET)
+      // 4. Visits & Inspection Logs (Fail-Safe Insert & Foreign Key Recovery)
       if (endpoint.startsWith('/visits') || endpoint.startsWith('/logs')) {
         const urlSegments = endpoint.split('?')[0].split('/').filter(Boolean);
         const targetVisitId = urlSegments.length === 2 ? urlSegments[1] : null;
@@ -221,8 +221,13 @@ export const api = {
         if (options.method === 'POST') {
           const body = options.body ? JSON.parse(options.body as string) : {};
 
-          // Map strictly to PostgreSQL snake_case schema columns
-          const visitPayload = {
+          // Verify foreign key integrity before inserting
+          const rawLeadId = body.lead_id || body.leadId || null;
+          const safeLeadId = (rawLeadId && String(rawLeadId).startsWith('LEAD-'))
+            ? rawLeadId
+            : null;
+
+          const visitPayload: Record<string, any> = {
             id: body.id,
             representative_id: body.representative_id || body.representativeId || null,
             representative_name: body.representative_name || body.representativeName || 'Field Officer',
@@ -235,7 +240,7 @@ export const api = {
             board_photo: body.board_photo || body.boardPhoto || null,
             rep_photo: body.rep_photo || body.repPhoto || null,
             notes: body.notes || '',
-            lead_id: body.lead_id || body.leadId || null,
+            lead_id: safeLeadId,
             visit_purpose: body.visit_purpose || body.visitPurpose || 'COLD_CALL',
             interaction_outcome: body.interaction_outcome || body.interactionOutcome || 'DISCUSSED',
             next_follow_up: body.next_follow_up || body.nextFollowUp || null,
@@ -248,6 +253,21 @@ export const api = {
             .single();
 
           if (error) {
+            // Auto-fallback: if foreign key constraint failed on lead_id, retry once with lead_id = null
+            if (error.code === '23503' && error.message.includes('visits_lead_id_fkey')) {
+              console.warn('Foreign key lead_id missing in leads table. Retrying insert with lead_id = null...');
+              visitPayload.lead_id = null;
+              const retryRes = await supabase
+                .from('visits')
+                .insert([visitPayload])
+                .select()
+                .single();
+
+              if (!retryRes.error) {
+                return retryRes.data;
+              }
+            }
+
             console.error('Supabase Visit Insert Error:', error);
             throw new Error(error.message);
           }
@@ -266,7 +286,6 @@ export const api = {
             query = query.eq('representative_id', repId);
           }
 
-          // Order by 'timestamp' (standard visits schema column)
           const { data, error } = await query
             .order('timestamp', { ascending: false })
             .limit(50);
@@ -296,6 +315,7 @@ export const api = {
             company_name: body.company_name || body.companyName || '',
             contact_person: body.contact_person || body.contactPerson || '',
             phone: body.phone || body.phoneNumber || '',
+            address: body.address || null,
             status: body.status || 'PROSPECT',
             estimated_value: Number(body.estimated_value ?? body.estimatedValue ?? 0),
             assigned_to: body.assigned_to || body.assignedTo || null,
@@ -320,6 +340,7 @@ export const api = {
           };
 
           if (body.status !== undefined) updatePayload.status = body.status;
+          if (body.address !== undefined) updatePayload.address = body.address;
           if (body.estimated_value !== undefined || body.estimatedValue !== undefined) {
             updatePayload.estimated_value = Number(body.estimated_value ?? body.estimatedValue);
           }
@@ -352,12 +373,12 @@ export const api = {
           return [];
         }
 
-        // Map snake_case to camelCase for frontend UI consumption
         return (data || []).map((l: any) => ({
           id: l.id,
           companyName: l.company_name,
           contactPerson: l.contact_person,
           phone: l.phone,
+          address: l.address,
           status: l.status,
           estimatedValue: l.estimated_value,
           assignedTo: l.assigned_to,
@@ -366,7 +387,7 @@ export const api = {
         }));
       }
 
-      // 6. Attendance & GPS Punches (GET, POST, PATCH)
+      // 6. Attendance & GPS Punches
       if (endpoint.startsWith('/attendance')) {
         const urlSegments = endpoint.split('?')[0].split('/').filter(Boolean);
         const targetAttendanceId = urlSegments.length === 2 ? urlSegments[1] : null;
@@ -503,7 +524,7 @@ export const api = {
         return cachedSettings ? JSON.parse(cachedSettings) : null;
       }
 
-      // Fallback for real HTTP microservice endpoints
+      // Fallback
       const headers = new Headers(options.headers || {});
       if (token) headers.set('Authorization', `Bearer ${token}`);
       headers.set('Content-Type', 'application/json');
@@ -511,7 +532,6 @@ export const api = {
       const response = await fetch(endpoint, { ...options, headers });
       const contentType = response.headers.get('content-type');
 
-      // Prevent HTML-as-JSON parse crashes
       if (!contentType || !contentType.includes('application/json')) {
         return null;
       }
