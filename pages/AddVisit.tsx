@@ -25,12 +25,22 @@ import {
   Clock,
   ExternalLink,
   Crosshair,
-  Navigation
+  Navigation,
+  Printer,
+  ShieldCheck,
+  Plus,
+  Crown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Location, Lead, VisitPurpose, InteractionOutcome } from '../types';
+import { canvasToCompressedDataUrl } from '../services/imageCompress';
+import { Location, VisitPurpose, InteractionOutcome, Role } from '../types';
 import { api } from '../services/apiService';
 import { saveVisitOffline } from '../services/offlineSync';
+
+const esc = (value: unknown): string =>
+  String(value ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)
+  );
 
 const VISIT_PURPOSES: { value: VisitPurpose; label: string }[] = [
   { value: 'COLD_CALL', label: 'Initial Site Inspection / Introduction' },
@@ -60,9 +70,19 @@ interface AccountOption {
 type FormStep = 'VISIT_TYPE' | 'CLIENT_DETAILS' | 'MEETING_OUTCOME' | 'VERIFICATION';
 const STEPS: FormStep[] = ['VISIT_TYPE', 'CLIENT_DETAILS', 'MEETING_OUTCOME', 'VERIFICATION'];
 
+interface ServiceRequirementRow {
+  role: string;
+  enabled: boolean;
+  count: number;
+  shift: '12_HOURS' | '8_HOURS';
+}
+
 export const AddVisit: React.FC = () => {
-  const { user } = useAuth();
+  const { user, settings } = useAuth();
   const navigate = useNavigate();
+
+  const isAdmin = user?.role === Role.ADMIN;
+
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isGpsLocking, setIsGpsLocking] = useState(false);
@@ -74,7 +94,6 @@ export const AddVisit: React.FC = () => {
   const [accountList, setAccountList] = useState<AccountOption[]>([]);
   const [isAccountLoading, setIsAccountLoading] = useState(false);
 
-  // Camera Settings
   const [cameraActive, setCameraActive] = useState<{ active: boolean; type: 'board' | 'rep' }>({
     active: false,
     type: 'board'
@@ -94,10 +113,17 @@ export const AddVisit: React.FC = () => {
     visitPurpose: 'COLD_CALL' as VisitPurpose,
     interactionOutcome: 'DISCUSSED' as InteractionOutcome,
     estimatedValue: '',
-    nextFollowUp: '',
-    guardRequirement: '2',
-    shiftRequirement: '12_HOURS'
+    nextFollowUp: ''
   });
+
+  const [serviceRequirements, setServiceRequirements] = useState<Record<string, ServiceRequirementRow>>({
+    guard: { role: 'Security Guard', enabled: true, count: 2, shift: '12_HOURS' },
+    supervisor: { role: 'Field Supervisor', enabled: false, count: 1, shift: '12_HOURS' },
+    gunman: { role: 'Armed Gunman', enabled: false, count: 1, shift: '12_HOURS' },
+    housekeeping: { role: 'Housekeeping Staff', enabled: false, count: 2, shift: '8_HOURS' }
+  });
+
+  const [customRoles, setCustomRoles] = useState<{ id: string; name: string; count: number; shift: '12_HOURS' | '8_HOURS' }[]>([]);
 
   const [photos, setPhotos] = useState<{ board: string | null; rep: string | null }>({
     board: null,
@@ -109,7 +135,6 @@ export const AddVisit: React.FC = () => {
       if (!user?.id) return;
       setIsAccountLoading(true);
       try {
-        const isAdmin = user?.role === 'ADMIN';
         const leadsUrl = isAdmin ? '/leads' : `/leads?assignedTo=${user.id}`;
         const visitsUrl = isAdmin ? '/visits' : `/visits?rep_id=${user.id}`;
 
@@ -120,7 +145,6 @@ export const AddVisit: React.FC = () => {
 
         const combinedMap = new Map<string, AccountOption>();
 
-        // 1. Leads from public.leads table (Valid for visits.lead_id foreign key constraint)
         if (leadsRes.status === 'fulfilled' && Array.isArray(leadsRes.value)) {
           leadsRes.value.forEach((l: any) => {
             const name = (l.companyName || l.company_name || '').trim();
@@ -139,7 +163,6 @@ export const AddVisit: React.FC = () => {
           });
         }
 
-        // 2. Previous visits from public.visits table
         if (visitsRes.status === 'fulfilled' && Array.isArray(visitsRes.value)) {
           visitsRes.value.forEach((v: any) => {
             const name = (v.companyName || v.company_name || '').trim();
@@ -152,7 +175,7 @@ export const AddVisit: React.FC = () => {
 
               combinedMap.set(name.toLowerCase(), {
                 id: v.id,
-                isRealLead: false, // Prevents foreign key crash on visits.lead_id
+                isRealLead: false,
                 companyName: name.toUpperCase(),
                 contactPerson: v.contactPerson || v.contact_person || '',
                 phone: v.phoneNumber || v.phone_number || v.phone || '',
@@ -166,14 +189,14 @@ export const AddVisit: React.FC = () => {
 
         setAccountList(Array.from(combinedMap.values()));
       } catch (err) {
-        console.error('Failed to load accounts pipeline:', err);
+        console.error('Failed to load pipeline accounts:', err);
       } finally {
         setIsAccountLoading(false);
       }
     };
 
     fetchAvailableAccounts();
-  }, [user]);
+  }, [user, isAdmin]);
 
   const handleLeadSelection = (accountId: string) => {
     setSelectedAccountId(accountId);
@@ -192,7 +215,6 @@ export const AddVisit: React.FC = () => {
     if (selected) {
       setFormData((prev) => ({
         ...prev,
-        // Only populate leadId if it exists in public.leads table
         leadId: selected.isRealLead ? selected.id : null,
         companyName: selected.companyName,
         phone: (selected.phone || '').replace(/\D/g, '').slice(0, 10),
@@ -235,7 +257,7 @@ export const AddVisit: React.FC = () => {
     }
 
     if (!navigator.geolocation) {
-      setLocationError('GPS sensor not available on this browser/terminal.');
+      setLocationError('GPS sensor not available on this terminal.');
       setIsGpsLocking(false);
       return;
     }
@@ -252,11 +274,11 @@ export const AddVisit: React.FC = () => {
         setIsGpsLocking(false);
       },
       (error) => {
-        let msg = 'Failed to lock coordinates. Please verify device GPS is active.';
+        let msg = 'Failed to lock coordinates. Verify device GPS is active.';
         if (error.code === error.PERMISSION_DENIED) {
-          msg = 'Location permission rejected. Allow location access in settings.';
+          msg = 'Location permission denied. Please allow location in settings.';
         } else if (error.code === error.TIMEOUT) {
-          msg = 'Satellite acquisition timed out. Ensure clear sky view.';
+          msg = 'Satellite acquisition timed out. Ensure open sky view.';
         }
         setLocationError(msg);
         setIsGpsLocking(false);
@@ -283,7 +305,7 @@ export const AddVisit: React.FC = () => {
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
-      alert('Camera permissions are required for PSARA visual verification.');
+      alert('Camera access is required for inspection visual verification.');
       setCameraActive({ active: false, type: 'board' });
     }
   };
@@ -316,11 +338,132 @@ export const AddVisit: React.FC = () => {
           size,
           size
         );
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const dataUrl = canvasToCompressedDataUrl(canvas, { maxSize: 1024, quality: 0.7 });
         setPhotos((prev) => ({ ...prev, [cameraActive.type]: dataUrl }));
         stopCamera();
       }
     }
+  };
+
+const handlePrintSurveyLetter = () => {
+    if (!formData.companyName.trim()) {
+      alert('Please fill the establishment name first.');
+      return;
+    }
+
+    const activeManning = [
+      ...Object.values(serviceRequirements)
+        .filter((s) => s.enabled)
+        .map((s) => `${s.count} ${s.role} (${s.shift === '12_HOURS' ? '12 Hrs' : '8 Hrs'})`),
+      ...customRoles.map((c) => `${c.count} ${c.name} (${c.shift === '12_HOURS' ? '12 Hrs' : '8 Hrs'})`)
+    ].join(', ');
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) return;
+
+    const companyTitle = settings?.companyName || 'VIDHYA SECURITY FORCE & HOUSEKEEPING SERVICES';
+    const companyAddress = settings?.address || '012 A BLOCK TREASURE TOWN INDORE, MP';
+    const psaraLic = settings?.psaraLicense || 'PSA/L/74/MP/2023/FEB/3/425';
+    const directorName = settings?.directorName || 'Anil Dhariwal';
+    // Resolves to Vite served asset path or settings logo
+    const logoSrc = settings?.logo || '/assets/logo.png';
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>VSF - Site Inspection Requisition - ${esc(formData.companyName)}</title>
+          <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+            body { padding: 36px; color: #0f172a; line-height: 1.5; background: #fff; }
+            .sheet { border: 2px solid #b91c1c; padding: 32px; border-radius: 14px; max-width: 780px; margin: 0 auto; min-height: 960px; display: flex; flex-direction: column; justify-content: space-between; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #fecdd3; padding-bottom: 16px; gap: 16px; }
+            .brand-left { display: flex; align-items: center; gap: 14px; }
+            .logo-img { width: 62px; height: 62px; object-fit: contain; }
+            .logo-title { font-size: 15px; font-weight: 900; color: #b91c1c; text-transform: uppercase; line-height: 1.2; }
+            .license { font-size: 9.5px; font-family: monospace; font-weight: 700; color: #9a3412; margin-top: 3px; }
+            .client-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin: 18px 0; }
+            .subject { background: #fef2f2; border: 1px solid #fecaca; padding: 9px 12px; font-weight: 900; color: #991b1b; font-size: 11.5px; border-radius: 8px; margin: 14px 0; text-transform: uppercase; }
+            .table-box { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 11.5px; }
+            .table-box th, .table-box td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+            .table-box th { background: #f1f5f9; text-transform: uppercase; font-size: 10px; text-align: left; }
+            .auth-box { border: 2px dashed #94a3b8; border-radius: 10px; padding: 16px; margin-top: 20px; background: #fafafa; }
+            .sig-row { display: flex; justify-content: space-between; margin-top: 40px; }
+            .sig-line { border-top: 1px solid #475569; width: 200px; text-align: center; font-size: 9.5px; font-weight: bold; text-transform: uppercase; padding-top: 5px; }
+            @media print { body { padding: 0; } .sheet { border: 2px solid #000; } }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <div>
+              <div class="header">
+                <div class="brand-left">
+                  <img
+                    src="${logoSrc}"
+                    alt="VSF Logo"
+                    class="logo-img"
+                    onerror="this.style.display='none'"
+                  />
+                  <div>
+                    <div class="logo-title">${esc(companyTitle)}</div>
+                    <div style="font-size: 11px; font-weight: 900; color: #1e3a8a; margin-top: 2px;">संरक्षण एवं सुरक्षा &bull; PSARA MP LICENSED</div>
+                    <div class="license">LIC: ${esc(psaraLic)} &bull; INDORE HQ</div>
+                  </div>
+                </div>
+                <div style="text-align: right; font-size: 10px; font-weight: bold; shrink-0;">
+                  <div>DATE: ${new Date().toLocaleDateString('en-IN')}</div>
+                  <div style="color: #b91c1c; margin-top: 2px;">REF: VSF/SVR/${Math.floor(100000 + Math.random() * 900000)}</div>
+                </div>
+              </div>
+
+              <div class="client-card">
+                <span style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">To Organization:</span>
+                <div style="font-size: 14px; font-weight: 900; color: #0f172a; text-transform: uppercase;">${esc(formData.companyName)}</div>
+                <div style="font-size: 11px; color: #475569; margin-top: 2px;">Attention: <strong>${esc(formData.contactPerson || 'Authorized Authority')}</strong> &bull; Contact: +91 ${esc(formData.phone || 'N/A')}</div>
+                <div style="font-size: 10px; color: #64748b;">Premises: ${esc(formData.address || 'Site Premises')}</div>
+              </div>
+
+              <div class="subject">
+                Subject: Advance Authorization &amp; Site Security Survey Docket
+              </div>
+
+              <p style="font-size: 11.5px; color: #334155; margin-bottom: 12px; text-align: justify;">
+                Dear Sir/Madam,<br><br>
+                Pursuant to communication regarding security guarding deployment at your establishment, ${esc(companyTitle)} has scheduled an on-site physical inspection to review security post positions, entry/exit gates, and manning specifications.
+              </p>
+
+              <table class="table-box">
+                <tr><th width="35%">Proposed Inspection Date</th><td><strong>${formData.nextFollowUp || new Date().toISOString().split('T')[0]}</strong></td></tr>
+                <tr><th>Manning Post Scopes</th><td>${esc(activeManning || 'Static Guard Manning')}</td></tr>
+                <tr><th>Assigned Officer</th><td>${esc(user?.name || directorName)} (HQ Direct: +91 9826259292)</td></tr>
+              </table>
+
+              <div class="auth-box">
+                <div style="font-size: 10.5px; font-weight: 900; text-transform: uppercase;">Client Site Visit Requisition &amp; Gate Entry Authorization</div>
+                <p style="font-size: 10.5px; color: #475569; margin-top: 4px;">
+                  We hereby confirm the proposed site visit and authorize the representative of ${esc(companyTitle)} to inspect our premises for physical survey and commercial quotation presentation.
+                </p>
+                <div class="sig-row">
+                  <div class="sig-line">Client Stamp &amp; Signature<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">(Authorized Management)</span></div>
+                  <div class="sig-line">For ${esc(companyTitle)}<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">Central Command Desk &bull; ${esc(directorName)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div style="text-align: center; font-size: 8.5px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 8px;">
+              HEAD OFFICE: ${esc(companyAddress)} &bull; Phone: 9826259292 &bull; contact@vidhyasecurityforce.in
+            </div>
+          </div>
+          <script>
+            // Ensure image loads before firing window.print
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
   };
 
   const validateStep = (): boolean => {
@@ -351,6 +494,16 @@ export const AddVisit: React.FC = () => {
     }
 
     if (currentStep === 'MEETING_OUTCOME') {
+      const totalSelected = [
+        ...Object.values(serviceRequirements).filter((s) => s.enabled),
+        ...customRoles
+      ].reduce((acc, s) => acc + s.count, 0);
+
+      if (totalSelected === 0) {
+        alert('Please select at least 1 service personnel requirement.');
+        return false;
+      }
+
       if (
         (formData.interactionOutcome === 'CALLBACK' || formData.interactionOutcome === 'DEMO_SCHEDULED') &&
         !formData.nextFollowUp
@@ -377,49 +530,76 @@ export const AddVisit: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!location) {
-      alert('Locking real-time satellite GPS coordinates is required.');
-      return;
-    }
-    if (!photos.board) {
-      alert('An on-site photo of the signboard or premises entrance is required.');
-      return;
-    }
-    if (!photos.rep) {
-      alert('An officer verification selfie on site is mandatory.');
-      return;
+    if (!isAdmin) {
+      if (!location) {
+        alert('PSARA Audit Requirement: Real-time satellite GPS coordinates lock is mandatory for field officers.');
+        return;
+      }
+      if (!photos.board) {
+        alert('PSARA Audit Requirement: On-site photo of the signboard or entrance is mandatory.');
+        return;
+      }
+      if (!photos.rep) {
+        alert('PSARA Audit Requirement: Officer biometric verification selfie on site is mandatory.');
+        return;
+      }
     }
 
     setIsLoading(true);
     const generatedVisitId = `VISIT-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
     const cleanAddress = formData.address.trim();
 
-    // Embed address cleanly in notes for CreateQuotation extraction
-    const formattedNotes = `Address: ${cleanAddress} | Notes: ${formData.notes.trim()} | Requirements: ${formData.guardRequirement} Guards (${formData.shiftRequirement})`;
+    const requirementsArray: string[] = [];
+    Object.entries(serviceRequirements).forEach(([, s]) => {
+      if (s.enabled && s.count > 0) {
+        requirementsArray.push(`${s.count} ${s.role} (${s.shift})`);
+      }
+    });
+    customRoles.forEach((c) => {
+      if (c.count > 0) {
+        requirementsArray.push(`${c.count} ${c.name} (${c.shift})`);
+      }
+    });
 
-    // Schema enforcement: lead_id must be NULL or exist in public.leads table
-    const safeLeadId = (formData.leadId && formData.leadId.startsWith('LEAD-'))
+    const guardCountSum = serviceRequirements.guard.enabled ? serviceRequirements.guard.count : 0;
+    const formattedNotes = `Address: ${cleanAddress} | Notes: ${formData.notes.trim()} | Guards: ${guardCountSum} | Requirements: ${requirementsArray.join(', ')}`;
+
+    const safeLeadId = formData.leadId && formData.leadId.startsWith('LEAD-')
       ? formData.leadId
       : null;
 
-    // Matches public.visits schema (no `address` column to prevent 409 crash)
+    const manningSpecs = {
+      guard: serviceRequirements.guard.enabled ? serviceRequirements.guard : null,
+      supervisor: serviceRequirements.supervisor.enabled ? serviceRequirements.supervisor : null,
+      gunman: serviceRequirements.gunman.enabled ? serviceRequirements.gunman : null,
+      housekeeping: serviceRequirements.housekeeping.enabled ? serviceRequirements.housekeeping : null,
+      custom: customRoles
+    };
+
     const visitPayload = {
       id: generatedVisitId,
       representative_id: user?.id || null,
-      representative_name: user?.name || 'Field Representative',
+      representative_name: isAdmin ? `${user?.name || 'Director'} (HQ Admin)` : (user?.name || 'Field Representative'),
       company_name: formData.companyName.toUpperCase().trim(),
       category: formData.category,
       phone_number: formData.phone,
       contact_person: formData.contactPerson.trim(),
       timestamp: new Date().toISOString(),
-      location: {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        accuracy: location.accuracy || 10
-      },
+      location: location
+        ? {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            accuracy: location.accuracy || 10
+          }
+        : {
+            latitude: 22.7196,
+            longitude: 75.8577,
+            accuracy: 50
+          },
       board_photo: photos.board,
       rep_photo: photos.rep,
       notes: formattedNotes,
+      manning_specs: manningSpecs,
       lead_id: safeLeadId,
       visit_purpose: formData.visitPurpose,
       interaction_outcome: formData.interactionOutcome,
@@ -433,10 +613,9 @@ export const AddVisit: React.FC = () => {
       });
 
       if (!response) {
-        throw new Error('Database server failed to return receipt confirmation.');
+        throw new Error('Database server failed to return confirmation.');
       }
 
-      // If commercial interest expressed, register in public.leads (which DOES have address column)
       if (!safeLeadId && ['INTERESTED', 'DEMO_SCHEDULED', 'CALLBACK'].includes(formData.interactionOutcome)) {
         const freshLeadPayload = {
           id: `LEAD-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
@@ -444,25 +623,40 @@ export const AddVisit: React.FC = () => {
           contact_person: formData.contactPerson.trim(),
           phone: formData.phone,
           address: cleanAddress,
-          status: formData.interactionOutcome === 'INTERESTED' ? 'INTERESTED' : 'PROSPECT',
+          status: isAdmin ? 'QUALIFIED_LEAD' : (formData.interactionOutcome === 'INTERESTED' ? 'INTERESTED' : 'PROSPECT'),
           estimated_value: Number(formData.estimatedValue || 0),
           assigned_to: user?.id,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
-        await api.request('/leads', {
-          method: 'POST',
-          body: JSON.stringify(freshLeadPayload)
-        });
+
+        try {
+          await api.request('/leads', {
+            method: 'POST',
+            body: JSON.stringify(freshLeadPayload)
+          });
+        } catch (leadErr) {
+          console.warn('Visit saved, but the lead could not be created:', leadErr);
+        }
       }
 
-      alert('✅ Real GPS location and patrol docket logged to database!');
+      alert('Visit record successfully logged to central database.');
       navigate('/visits');
     } catch (err: any) {
       console.error('Submission failed:', err);
-      await saveVisitOffline(visitPayload);
-      alert(`Saved Offline: Saved locally on device due to network limitations. (${err.message})`);
-      navigate('/visits');
+
+      const looksOffline =
+        !navigator.onLine ||
+        err?.name === 'TypeError' ||
+        /failed to fetch|network|timeout|load failed/i.test(err?.message || '');
+
+      if (looksOffline) {
+        await saveVisitOffline(visitPayload);
+        alert('No connection: the visit is saved on this device and will upload automatically when you are back online.');
+        navigate('/visits');
+      } else {
+        alert(`The visit could not be saved: ${err?.message || 'unknown error'}. Please check the details and try again.`);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -472,14 +666,16 @@ export const AddVisit: React.FC = () => {
 
   return (
     <div className="max-w-xl mx-auto space-y-6 pb-16 px-1 sm:px-2 animate-in fade-in duration-200">
-
-      {/* Header Banner */}
       <div className="bg-white border border-slate-200/90 p-5 sm:p-6 rounded-3xl shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-1.5 mb-1">
-            <ShieldAlert size={14} className="text-red-700" />
+            {isAdmin ? (
+              <Crown size={14} className="text-amber-600" />
+            ) : (
+              <ShieldAlert size={14} className="text-red-700" />
+            )}
             <span className="text-[10px] font-mono font-bold text-amber-800 uppercase tracking-widest">
-              Commercial Field Intake
+              {isAdmin ? 'Directorial Command Intake' : 'Commercial Field Patrol'}
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight">
@@ -487,16 +683,30 @@ export const AddVisit: React.FC = () => {
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
             Step {currentStepIndex + 1} of {STEPS.length} &bull; {activeStep.replace('_', ' ')}
+            {isAdmin && <span className="ml-1 text-amber-700 font-bold">(Admin Mode)</span>}
           </p>
         </div>
 
-        <div className="px-3 py-1 rounded-xl bg-[#FBFBF9] border border-slate-200 text-[10px] font-mono font-bold text-slate-600 uppercase self-start sm:self-auto flex items-center gap-1.5">
-          <Navigation size={12} className="text-red-700" />
-          <span>Live GPS Satellite Lock</span>
+        <div className="flex items-center gap-2">
+          {formData.companyName && (
+            <button
+              type="button"
+              onClick={handlePrintSurveyLetter}
+              className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-[10px] font-mono font-bold text-red-700 uppercase flex items-center gap-1 transition cursor-pointer"
+              title="Print Pre-Visit Authorization Letter"
+            >
+              <Printer size={12} />
+              <span>Survey Letter</span>
+            </button>
+          )}
+
+          <div className="px-3 py-1 rounded-xl bg-[#FBFBF9] border border-slate-200 text-[10px] font-mono font-bold text-slate-600 uppercase flex items-center gap-1.5">
+            <Navigation size={12} className="text-red-700" />
+            <span>GPS Satellite Lock</span>
+          </div>
         </div>
       </div>
 
-      {/* Progress Bar */}
       <div className="flex gap-2">
         {STEPS.map((step, idx) => (
           <div
@@ -509,8 +719,6 @@ export const AddVisit: React.FC = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-
-        {/* STEP 1: VISIT SELECTION TYPE */}
         {activeStep === 'VISIT_TYPE' && (
           <div className="space-y-4">
             <div className="bg-white p-6 sm:p-7 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
@@ -597,7 +805,7 @@ export const AddVisit: React.FC = () => {
                 </select>
                 {accountList.length === 0 && !isAccountLoading && (
                   <p className="text-[10px] text-amber-300/80 font-mono mt-1">
-                    No previous visits or assigned leads found. Switch to "Initial Site Inspection" above to log a new client.
+                    No previous visits or assigned leads found. Switch to &quot;Initial Site Inspection&quot; above to log a new client.
                   </p>
                 )}
               </div>
@@ -605,7 +813,6 @@ export const AddVisit: React.FC = () => {
           </div>
         )}
 
-        {/* STEP 2: CLIENT DETAILS */}
         {activeStep === 'CLIENT_DETAILS' && (
           <div className="bg-white p-6 sm:p-7 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
             <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
@@ -633,7 +840,6 @@ export const AddVisit: React.FC = () => {
                 </div>
               </div>
 
-              {/* Exact Site Address Field */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">
                   Site / Premises Physical Address <span className="text-red-600">*</span>
@@ -711,17 +917,16 @@ export const AddVisit: React.FC = () => {
           </div>
         )}
 
-        {/* STEP 3: MEETING METRICS & QUOTATION SPECS */}
         {activeStep === 'MEETING_OUTCOME' && (
-          <div className="bg-white p-6 sm:p-7 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
+          <div className="bg-white p-5 sm:p-7 rounded-3xl border border-slate-200/90 shadow-xs space-y-5">
             <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
               <Target className="text-red-700" size={18} />
               <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                Meeting Outcome &amp; Manning Specs
+                Meeting Outcome &amp; Service Manning Requirements
               </h3>
             </div>
 
-            <div className="space-y-3.5">
+            <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">
@@ -762,40 +967,153 @@ export const AddVisit: React.FC = () => {
                 </div>
               </div>
 
-              {/* Security Guards Specification */}
-              <div className="grid grid-cols-2 gap-3.5 pt-1">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                    Guards Required
-                  </label>
-                  <div className="relative">
-                    <Users className="absolute left-3.5 top-3 text-amber-700" size={15} />
-                    <input
-                      type="number"
-                      min={1}
-                      value={formData.guardRequirement}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, guardRequirement: e.target.value }))}
-                      className="w-full pl-10 pr-3 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 outline-none focus:border-red-700"
-                    />
+              <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-[11px] font-black uppercase text-slate-900 tracking-wider block">
+                      Services Required (सेवा आवश्यकताएँ)
+                    </label>
+                    <p className="text-[9.5px] text-slate-400">Select roles, headcount, and shift durations requested by client</p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomRoles((prev) => [
+                        ...prev,
+                        { id: `CUSTOM-${Date.now()}`, name: 'Peon / Office Boy', count: 1, shift: '8_HOURS' }
+                      ]);
+                    }}
+                    className="px-2.5 py-1 bg-slate-900 hover:bg-black text-white text-[10px] font-bold uppercase rounded-lg transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus size={11} className="text-amber-300" />
+                    <span>+ Custom Role</span>
+                  </button>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">
-                    Shift Configuration
-                  </label>
-                  <div className="relative">
-                    <Clock className="absolute left-3.5 top-3 text-amber-700" size={15} />
-                    <select
-                      value={formData.shiftRequirement}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, shiftRequirement: e.target.value }))}
-                      className="w-full pl-10 pr-3 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-red-700 cursor-pointer"
+                <div className="space-y-2">
+                  {Object.entries(serviceRequirements).map(([key, s]) => (
+                    <div
+                      key={key}
+                      className={`p-3 rounded-2xl border transition ${
+                        s.enabled ? 'bg-white border-red-700/60 shadow-xs ring-1 ring-red-700/20' : 'bg-[#FBFBF9] border-slate-200 opacity-60'
+                      }`}
                     >
-                      <option value="12_HOURS">12 Hours (Day/Night)</option>
-                      <option value="8_HOURS">8 Hours (3-Shift Rotation)</option>
-                      <option value="24_HOURS_LIVE">24-Hour Embedded Garrison</option>
-                    </select>
-                  </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <label className="flex items-center gap-2.5 cursor-pointer min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={s.enabled}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setServiceRequirements((p) => ({
+                                ...p,
+                                [key]: { ...p[key], enabled: checked, count: checked && p[key].count === 0 ? 1 : p[key].count }
+                              }));
+                            }}
+                            className="w-4 h-4 rounded text-red-700 focus:ring-red-700"
+                          />
+                          <span className="text-xs font-black uppercase text-slate-900 truncate">
+                            {s.role}
+                          </span>
+                        </label>
+
+                        {s.enabled && (
+                          <div className="flex items-center gap-2 self-end sm:self-auto">
+                            <div className="flex items-center space-x-1">
+                              <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">Shift:</span>
+                              <select
+                                value={s.shift}
+                                onChange={(e) => {
+                                  const shift = e.target.value as '12_HOURS' | '8_HOURS';
+                                  setServiceRequirements((p) => ({
+                                    ...p,
+                                    [key]: { ...p[key], shift }
+                                  }));
+                                }}
+                                className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 outline-none"
+                              >
+                                <option value="12_HOURS">12 Hrs</option>
+                                <option value="8_HOURS">08 Hrs</option>
+                              </select>
+                            </div>
+
+                            <div className="flex items-center space-x-1">
+                              <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">Posts:</span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={99}
+                                value={s.count}
+                                onChange={(e) => {
+                                  const count = Math.max(1, parseInt(e.target.value, 10) || 1);
+                                  setServiceRequirements((p) => ({
+                                    ...p,
+                                    [key]: { ...p[key], count }
+                                  }));
+                                }}
+                                className="w-14 px-2 py-1 text-center font-mono font-bold text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-red-700"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {customRoles.map((custom) => (
+                    <div key={custom.id} className="p-3 rounded-2xl border border-amber-300 bg-amber-50/20 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <input
+                          value={custom.name}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCustomRoles((p) => p.map((r) => (r.id === custom.id ? { ...r, name: val } : r)));
+                          }}
+                          placeholder="e.g. Peon / Bouncer / Driver"
+                          className="flex-1 px-2.5 py-1 bg-white border border-amber-200 rounded-lg text-xs font-bold uppercase text-slate-900 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setCustomRoles((p) => p.filter((r) => r.id !== custom.id))}
+                          className="p-1 text-slate-400 hover:text-red-700 cursor-pointer"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center space-x-1">
+                          <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">Shift:</span>
+                          <select
+                            value={custom.shift}
+                            onChange={(e) => {
+                              const shift = e.target.value as '12_HOURS' | '8_HOURS';
+                              setCustomRoles((p) => p.map((r) => (r.id === custom.id ? { ...r, shift: shift } : r)));
+                            }}
+                            className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none"
+                          >
+                            <option value="8_HOURS">08 Hrs</option>
+                            <option value="12_HOURS">12 Hrs</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center space-x-1">
+                          <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">Posts:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            value={custom.count}
+                            onChange={(e) => {
+                              const count = Math.max(1, parseInt(e.target.value, 10) || 1);
+                              setCustomRoles((p) => p.map((r) => (r.id === custom.id ? { ...r, count: count } : r)));
+                            }}
+                            className="w-14 px-2 py-1 text-center font-mono font-bold text-xs bg-white border border-slate-200 rounded-lg outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -847,7 +1165,7 @@ export const AddVisit: React.FC = () => {
                     value={formData.notes}
                     onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                     className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-medium text-slate-900 outline-none focus:border-red-700 focus:bg-white transition"
-                    placeholder="Specific security observations (Armed guard, lady bouncers, boom barrier, night patrol)..."
+                    placeholder="Specific security observations (Boom barrier, night patrol, armed guards, lady bouncers)..."
                   />
                 </div>
               </div>
@@ -855,7 +1173,6 @@ export const AddVisit: React.FC = () => {
           </div>
         )}
 
-        {/* STEP 4: GEOLOCATION & IDENTITY VERIFICATION */}
         {activeStep === 'VERIFICATION' && (
           <div className="space-y-4">
             <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-xs space-y-3">
@@ -867,7 +1184,7 @@ export const AddVisit: React.FC = () => {
                   </label>
                 </div>
                 <span className="text-[9px] font-bold text-red-700 uppercase tracking-widest">
-                  Mandatory *
+                  {isAdmin ? 'Admin Discretionary' : 'Mandatory *'}
                 </span>
               </div>
 
@@ -946,6 +1263,12 @@ export const AddVisit: React.FC = () => {
                 </button>
               )}
 
+              {isAdmin && !location && (
+                <p className="text-[10px] font-mono text-amber-800 bg-amber-50 p-2 rounded-xl border border-amber-200">
+                  Director Override: As an authorized administrator, GPS lock will fallback to Indore HQ coordinates if logging from the desk.
+                </p>
+              )}
+
               {locationError && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl flex items-center gap-2">
                   <AlertCircle size={15} className="shrink-0" />
@@ -958,7 +1281,7 @@ export const AddVisit: React.FC = () => {
               <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-3 flex flex-col justify-between">
                 <div>
                   <h4 className="text-[10px] font-mono font-bold text-slate-700 uppercase tracking-wider">
-                    Site Signboard / Gate Pic <span className="text-red-600">*</span>
+                    Site Signboard / Gate Pic {isAdmin ? '(Optional for Admin)' : <span className="text-red-600">*</span>}
                   </h4>
                   <p className="text-[9px] text-slate-400">Exterior evidence of client visit</p>
                 </div>
@@ -991,7 +1314,7 @@ export const AddVisit: React.FC = () => {
               <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-3 flex flex-col justify-between">
                 <div>
                   <h4 className="text-[10px] font-mono font-bold text-slate-700 uppercase tracking-wider">
-                    Officer On-Site Selfie <span className="text-red-600">*</span>
+                    Officer On-Site Selfie {isAdmin ? '(Optional for Admin)' : <span className="text-red-600">*</span>}
                   </h4>
                   <p className="text-[9px] text-slate-400">Frontal biometric audit proof</p>
                 </div>
@@ -1024,7 +1347,6 @@ export const AddVisit: React.FC = () => {
           </div>
         )}
 
-        {/* Navigation Action Buttons */}
         <div className="flex items-center justify-between gap-3 pt-2">
           {currentStepIndex > 0 ? (
             <button
@@ -1062,16 +1384,14 @@ export const AddVisit: React.FC = () => {
               ) : (
                 <>
                   <Send size={14} className="text-amber-300" />
-                  <span>Authorize &amp; Submit Log</span>
+                  <span>{isAdmin ? 'Record Executive Visit Docket' : 'Authorize & Submit Log'}</span>
                 </>
               )}
             </button>
           )}
         </div>
-
       </form>
 
-      {/* Live Viewfinder Modal */}
       {cameraActive.active && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-xs p-4">
           <div className="relative w-full max-w-sm aspect-square bg-black rounded-3xl overflow-hidden border-2 border-amber-400 shadow-2xl">
@@ -1118,7 +1438,6 @@ export const AddVisit: React.FC = () => {
           </p>
         </div>
       )}
-
     </div>
   );
 };

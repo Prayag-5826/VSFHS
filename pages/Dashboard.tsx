@@ -1,12 +1,24 @@
-import React, { useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, RefreshCw, ShieldCheck, MapPin, Camera } from 'lucide-react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Visit, Role, Attendance, Lead } from '../types';
-import { api } from '../services/apiService';
+import { Visit, Role, Lead } from '../types';
+import { api, isNetworkError } from '../services/apiService';
 
-// Import Separated Presentation Layout Views
-import { AdminDashboard } from './AdminDashboard';
-import { FieldDashboard } from './FieldDashboard';
+// Charts and the map are only downloaded for administrators.
+const AdminDashboard = lazy(() => import('./AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
+const FieldDashboard = lazy(() => import('./FieldDashboard').then((m) => ({ default: m.FieldDashboard })));
+
+const ViewLoader: React.FC = () => (
+  <div className="flex items-center justify-center min-h-[40vh]">
+    <Loader2 className="animate-spin text-red-700" size={26} />
+  </div>
+);
+
+/** Local (not UTC) yyyy-mm-dd, so "today" is right in India before 5:30 AM. */
+const toLocalISO = (d: Date) => {
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+};
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -15,121 +27,51 @@ export const Dashboard: React.FC = () => {
   const [stats, setStats] = useState({ visits: 0, users: 0, leads: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [attendance, setAttendance] = useState<Attendance | null>(null);
-  const [punchLoading, setPunchLoading] = useState(false);
-  const [attendanceStep, setAttendanceStep] = useState<'IDLE' | 'CAPTURE'>('IDLE');
-
-  const [locationStatus, setLocationStatus] = useState<string | null>(null);
-  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
-
-  const isFieldStaff = user?.role === Role.FIELD_REP || user?.role === Role.SR_FIELD_EXECUTIVE;
-  const todayDateStr = new Date().toISOString().split('T')[0];
 
   const fetchDashboardTelemetry = async () => {
     if (!user) return;
     setLoading(true);
     setError(null);
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const isRep = user.role === Role.FIELD_REP;
 
-      const [visitsData, leadsData, statsData, attendanceData] = await Promise.all([
-        api.request(`/visits${user?.role === Role.FIELD_REP ? `?rep_id=${user.id}` : ''}`),
-        api.request(`/leads${user?.role === Role.FIELD_REP ? `?assignedTo=${user.id}` : ''}`),
-        api.request('/stats'),
-        isFieldStaff ? api.request(`/attendance?userId=${user?.id}&date=${todayStr}`) : Promise.resolve([])
+      const [visitsData, leadsData, statsData] = await Promise.all([
+        api.request(`/visits${isRep ? `?rep_id=${user.id}` : ''}`),
+        api.request(`/leads${isRep ? `?assignedTo=${user.id}` : ''}`),
+        api.request('/stats')
       ]);
 
       setVisits(Array.isArray(visitsData) ? visitsData : []);
       setLeads(Array.isArray(leadsData) ? leadsData : []);
       setStats(statsData || { visits: 0, users: 0, leads: 0 });
-
-      if (Array.isArray(attendanceData) && attendanceData.length > 0) {
-        setAttendance(attendanceData[0]);
-      }
     } catch (err: any) {
-      if (!err?.message?.includes('aborted') && err.name !== 'AbortError') {
-        console.error("Core metrics sync protocol error:", err);
-        setError(err.message || "Cloud pipeline data synchronization error.");
-      }
+      if (err?.name === 'AbortError' || err?.message?.includes('aborted')) return;
+      console.error('Dashboard sync error:', err);
+      setError(
+        isNetworkError(err)
+          ? 'No connection. Check your network and retry. Visits you log offline are saved on this device.'
+          : err?.message || 'Data synchronisation error.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  // Depend on id and role, not the whole user object, so a background session refresh doesn't reload everything.
   useEffect(() => {
     fetchDashboardTelemetry();
-  }, [user, isFieldStaff]);
-
-  const handleProfessionalPunchIn = async () => {
-    if (!user) return;
-    setPunchLoading(true);
-    setLocationStatus("Verifying secure GPS coordinates...");
-
-    if (!navigator.geolocation) {
-      alert("GPS Error: Geolocation tracking is not supported by this device hardware.");
-      setPunchLoading(false);
-      setLocationStatus(null);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        setCoordinates({ lat: position.coords.latitude, lng: position.coords.longitude });
-        setLocationStatus("GPS Location Verified. Activating security camera stream...");
-        setAttendanceStep('CAPTURE');
-        setPunchLoading(false);
-      },
-      (err) => {
-        setPunchLoading(false);
-        setLocationStatus(null);
-        alert("Telemetry Alert: Failed to lock high-precision location coordinates.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
-
-  const finalizeAttendanceRecord = async (selfieBase64: string) => {
-    if (!user || !coordinates) return;
-    setPunchLoading(true);
-    const now = new Date();
-
-    const payload = {
-      id: `ATT-${Date.now()}`,
-      userId: user.id,
-      userName: user.name,
-      punchIn: now.toISOString(),
-      date: now.toISOString().split('T')[0],
-      selfie: selfieBase64,
-      latitude: coordinates.lat,
-      longitude: coordinates.lng,
-      deviceVerified: true
-    };
-
-    try {
-      await api.request('/attendance', { method: 'POST', body: JSON.stringify(payload) });
-      setAttendance(payload as any);
-      setAttendanceStep('IDLE');
-      setLocationStatus(null);
-    } catch (err: any) {
-      alert(`Attendance Transmission Failure: ${err.message}`);
-    } finally {
-      setPunchLoading(false);
-    }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role]);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[55vh] space-y-4 bg-[#FBFBF9]">
+      <div className="flex flex-col items-center justify-center min-h-[55vh] space-y-4">
         <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center shadow-xs">
           <Loader2 className="animate-spin text-red-700" size={26} />
         </div>
         <div className="text-center space-y-1">
-          <p className="text-[11px] font-black text-red-800 uppercase tracking-widest animate-pulse">
-            Vidhya Security Force
-          </p>
-          <p className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
-            Authorizing Secure Command Session...
-          </p>
+          <p className="text-sm font-bold text-red-800">Vidhya Security Force</p>
+          <p className="text-xs text-slate-400">Loading your dashboard…</p>
         </div>
       </div>
     );
@@ -137,23 +79,20 @@ export const Dashboard: React.FC = () => {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[55vh] p-8 text-center max-w-md mx-auto space-y-5 bg-white border-2 border-red-100 rounded-3xl shadow-sm mt-6">
-        <div className="w-16 h-16 bg-red-50 text-red-700 border border-red-200 rounded-2xl flex items-center justify-center shadow-xs">
+      <div className="flex flex-col items-center justify-center min-h-[55vh] p-8 text-center max-w-md mx-auto space-y-5 bg-white border border-red-100 rounded-3xl shadow-sm mt-6">
+        <div className="w-16 h-16 bg-red-50 text-red-700 border border-red-200 rounded-2xl flex items-center justify-center">
           <AlertTriangle size={30} />
         </div>
         <div className="space-y-1.5">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 border border-red-200 text-[10px] font-mono font-bold text-red-800 uppercase tracking-widest">
-            <span>Data Sync Alert</span>
-          </div>
-          <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">Connection Interrupted</h2>
-          <p className="text-xs text-slate-500 font-medium leading-relaxed">{error}</p>
+          <h2 className="text-base font-bold text-slate-900">Connection interrupted</h2>
+          <p className="text-sm text-slate-500 leading-relaxed">{error}</p>
         </div>
         <button
           onClick={() => fetchDashboardTelemetry()}
-          className="w-full bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-black py-3.5 rounded-xl text-xs uppercase tracking-widest transition flex items-center justify-center space-x-2 shadow-md shadow-red-700/20 active:scale-98 cursor-pointer"
+          className="w-full bg-red-700 hover:bg-red-800 active:bg-red-900 text-white font-semibold py-3 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
         >
-          <RefreshCw size={14} className="text-amber-300" />
-          <span>Retry Session Sync</span>
+          <RefreshCw size={15} />
+          <span>Retry</span>
         </button>
       </div>
     );
@@ -163,51 +102,65 @@ export const Dashboard: React.FC = () => {
   const personalTarget = user?.visitTarget || 100;
   const progressPercent = Math.min(100, (visits.length / personalTarget) * 100).toFixed(0);
 
-  const todayVisits = visits.filter(v => v.timestamp.startsWith(todayDateStr));
+  const today = toLocalISO(new Date());
+  const visitDay = (v: Visit) => {
+    const d = new Date(v.timestamp);
+    return isNaN(d.getTime()) ? '' : toLocalISO(d);
+  };
 
-  const upcomingFollowUps = visits.filter(v => {
-    if (!v.nextFollowUp) return false;
-    return v.nextFollowUp >= new Date().toISOString().split('T')[0];
-  }).sort((a, b) => (a.nextFollowUp || '').localeCompare(b.nextFollowUp || '')).slice(0, 3);
+  const todayVisits = visits.filter((v) => visitDay(v) === today);
 
-  // Parse chart entries mapping chronologically
-  const last7Days = [...Array(7)].map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    return { name: d.toLocaleDateString('en-US', { weekday: 'short' }), date: d.toISOString().split('T')[0], pitches: 0 };
-  }).reverse();
+  const upcomingFollowUps = visits
+    .filter((v) => v.nextFollowUp && v.nextFollowUp >= today)
+    .sort((a, b) => (a.nextFollowUp || '').localeCompare(b.nextFollowUp || ''))
+    .slice(0, 3);
 
-  visits.forEach(v => {
-    const vDate = new Date(v.timestamp).toISOString().split('T')[0];
-    const day = last7Days.find(d => d.date === vDate);
+  // Last seven days, oldest first
+  const last7Days = [...Array(7)]
+    .map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      return {
+        name: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        date: toLocalISO(d),
+        pitches: 0
+      };
+    })
+    .reverse();
+
+  visits.forEach((v) => {
+    const day = last7Days.find((d) => d.date === visitDay(v));
     if (day) day.pitches++;
   });
 
-  // Dynamic View Switch
   if (user?.role === Role.ADMIN) {
     return (
-      <AdminDashboard
-        stats={stats}
-        visits={visits}
-        leads={leads}
-        totalPipelineValue={totalPipelineValue}
-        chartData={last7Days}
-      />
+      <Suspense fallback={<ViewLoader />}>
+        <AdminDashboard
+          stats={stats}
+          visits={visits}
+          leads={leads}
+          totalPipelineValue={totalPipelineValue}
+          chartData={last7Days}
+        />
+      </Suspense>
     );
   }
 
   return (
-    <FieldDashboard
-      user={user}
-      visits={visits}
-      leads={leads}
-      totalPipelineValue={totalPipelineValue}
-      progressPercent={progressPercent}
-      personalTarget={personalTarget}
-      todayVisits={todayVisits}
-      upcomingFollowUps={upcomingFollowUps}
-      onRefresh={fetchDashboardTelemetry}
-    />
+    <Suspense fallback={<ViewLoader />}>
+      <FieldDashboard
+        user={user}
+        visits={visits}
+        leads={leads}
+        totalPipelineValue={totalPipelineValue}
+        progressPercent={progressPercent}
+        personalTarget={personalTarget}
+        todayVisits={todayVisits}
+        upcomingFollowUps={upcomingFollowUps}
+        onRefresh={fetchDashboardTelemetry}
+      />
+    </Suspense>
   );
 };
 

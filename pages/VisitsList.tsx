@@ -13,17 +13,22 @@ import {
   ShieldAlert,
   Clock,
   Filter,
-  Eye
+  Eye,
+  Plus,
+  MessageCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Visit, Role } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/apiService';
 
 const VisitsList: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [outcomeFilter, setOutcomeFilter] = useState<string>('ALL');
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -50,6 +55,7 @@ const VisitsList: React.FC = () => {
       const rep = (v.representativeName || v.representative_name || '').toLowerCase();
       const phone = (v.phoneNumber || v.phone_number || '');
       const category = (v.category || '');
+      const outcome = (v.interactionOutcome || v.interaction_outcome || '');
 
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch =
@@ -59,10 +65,29 @@ const VisitsList: React.FC = () => {
         phone.includes(searchLower);
 
       const matchesCategory = categoryFilter === 'ALL' || category === categoryFilter;
+      const matchesOutcome = outcomeFilter === 'ALL' || outcome === outcomeFilter;
 
-      return matchesSearch && matchesCategory;
+      return matchesSearch && matchesCategory && matchesOutcome;
     });
-  }, [visits, searchTerm, categoryFilter]);
+  }, [visits, searchTerm, categoryFilter, outcomeFilter]);
+
+  const sendQuickWhatsApp = (v: any) => {
+    const phone = (v.phoneNumber || v.phone_number || '').replace(/\D/g, '').slice(-10);
+    if (!phone) {
+      alert("No phone recorded for this site.");
+      return;
+    }
+    const company = v.companyName || v.company_name || 'Client';
+    const text =
+      `*GREETINGS FROM VIDHYA SECURITY FORCE* 🛡️\n\n` +
+      `Dear Management at *${company}*,\n\n` +
+      `Our patrol officer recently completed an on-site security inspection of your facility.\n` +
+      `We would be pleased to submit our formal PSARA compliance rate proposal.\n\n` +
+      `Direct Helpline: +91 98262 59292\n` +
+      `_संरक्षण एवं सुरक्षा • Indore HQ_`;
+
+    window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
 
   if (loading) {
     return (
@@ -93,37 +118,61 @@ const VisitsList: React.FC = () => {
             Client Patrol Logs
           </h1>
           <p className="text-slate-500 font-medium text-xs mt-0.5">
-            Verified field drops, GPS locks, and commercial client inspections
+            Verified field drops, GPS locks, and commercial client inspections ({visits.length} Logs)
           </p>
         </div>
 
-        {/* Filter Controls */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="absolute left-3.5 top-3 text-slate-400" size={15} />
-            <input
-              type="text"
-              placeholder="Search entity, contact, rep..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-red-700 focus:bg-white transition"
-            />
-          </div>
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => navigate('/add-visit')}
+            className="px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus size={14} className="text-amber-300" />
+            <span>Log Client Drop</span>
+          </button>
+        </div>
+      </div>
 
-          <div className="relative">
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full sm:w-auto px-3 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-red-700 transition cursor-pointer"
-            >
-              <option value="ALL">All Sectors</option>
-              <option value="COMMERCIAL COMPLEX">Commercial Complex</option>
-              <option value="INDUSTRIAL WAREHOUSE">Industrial Warehouse</option>
-              <option value="RETAIL SHOWROOM">Retail Showroom</option>
-              <option value="CORPORATE OFFICE">Corporate Office</option>
-              <option value="HOSPITALITY / HOTEL">Hospitality / Hotel</option>
-            </select>
-          </div>
+      {/* Filter Toolbar */}
+      <div className="bg-white p-4 rounded-3xl border border-slate-200/90 shadow-xs flex flex-col md:flex-row items-center gap-3">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute left-3.5 top-3 text-slate-400" size={15} />
+          <input
+            type="text"
+            placeholder="Search establishment, contact, officer, phone..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-red-700 focus:bg-white transition"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-3 py-2 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-red-700 cursor-pointer"
+          >
+            <option value="ALL">All Sectors</option>
+            <option value="COMMERCIAL COMPLEX">Commercial</option>
+            <option value="INDUSTRIAL WAREHOUSE">Industrial / Warehouse</option>
+            <option value="RETAIL SHOWROOM">Retail Showroom</option>
+            <option value="CORPORATE OFFICE">Corporate Office</option>
+            <option value="HOSPITALITY / HOTEL">Hospitality / Resort</option>
+          </select>
+
+          <select
+            value={outcomeFilter}
+            onChange={(e) => setOutcomeFilter(e.target.value)}
+            className="px-3 py-2 bg-[#FBFBF9] border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-red-700 cursor-pointer"
+          >
+            <option value="ALL">All Outcomes</option>
+            <option value="INTERESTED">Interested</option>
+            <option value="DEMO_SCHEDULED">Survey Scheduled</option>
+            <option value="CALLBACK">Callback</option>
+            <option value="DISCUSSED">Discussed</option>
+            <option value="NOT_INTERESTED">Not Interested</option>
+          </select>
         </div>
       </div>
 
@@ -137,7 +186,7 @@ const VisitsList: React.FC = () => {
                 <th className="px-6 py-4">Site Representative</th>
                 <th className="px-6 py-4">Patrol Officer</th>
                 <th className="px-6 py-4">Inspection Date / GPS</th>
-                <th className="px-6 py-4 text-right">View Audit</th>
+                <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700">
@@ -147,7 +196,7 @@ const VisitsList: React.FC = () => {
                     <div className="w-14 h-14 bg-red-50 border border-red-200 text-red-700 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-xs">
                       <ClipboardList size={26} />
                     </div>
-                    <p className="text-xs font-black uppercase tracking-wider text-slate-700">No matching logs found</p>
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-700">No matching inspection logs found</p>
                     <p className="text-[10px] text-slate-400 font-medium mt-0.5">
                       Adjust your search query or log a new field visit.
                     </p>
@@ -209,7 +258,7 @@ const VisitsList: React.FC = () => {
                           <span>{rep}</span>
                         </div>
                         <span className="block text-[8.5px] font-bold uppercase tracking-wider text-slate-400 mt-1">
-                          Verdict: {outcome}
+                          Verdict: {outcome.replace(/_/g, ' ')}
                         </span>
                       </td>
 
@@ -228,15 +277,28 @@ const VisitsList: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* Details Link */}
+                      {/* Action Links */}
                       <td className="px-6 py-4 text-right">
-                        <Link
-                          to={`/visit/${visit.id}`}
-                          className="inline-flex items-center gap-1 p-2.5 text-slate-500 hover:text-red-700 bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded-xl transition shadow-xs cursor-pointer"
-                          title="Open Full Inspection Docket"
-                        >
-                          <Eye size={15} />
-                        </Link>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {phone && (
+                            <button
+                              type="button"
+                              onClick={() => sendQuickWhatsApp(visit)}
+                              className="p-2 text-emerald-700 hover:bg-emerald-50 border border-slate-200 rounded-xl transition shadow-xs cursor-pointer"
+                              title="WhatsApp Message"
+                            >
+                              <MessageCircle size={14} />
+                            </button>
+                          )}
+
+                          <Link
+                            to={`/visit/${visit.id}`}
+                            className="inline-flex items-center gap-1 p-2 text-slate-500 hover:text-red-700 bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded-xl transition shadow-xs cursor-pointer"
+                            title="Open Full Inspection Docket"
+                          >
+                            <Eye size={14} />
+                          </Link>
+                        </div>
                       </td>
 
                     </tr>

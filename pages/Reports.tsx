@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileSpreadsheet,
   FileText,
@@ -9,111 +9,251 @@ import {
   MapPin,
   Clock,
   UserCheck,
-  FileCheck2,
-  XCircle,
-  Eye,
+  CheckCircle2,
   ShieldAlert,
-  ShieldCheck
+  ShieldCheck,
+  Search,
+  Filter,
+  ExternalLink,
+  Users,
+  Building2,
+  Phone,
+  Camera,
+  Calendar,
+  IndianRupee,
+  ChevronRight,
+  X,
+  AlertTriangle,
+  Download,
+  Eye
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { api, supabase } from '../services/apiService';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer
+} from 'recharts';
+import { api } from '../services/apiService';
 import { Visit } from '../types';
 
-interface AttendanceRecord {
-  id: string;
-  user_id: string;
-  user_name: string;
-  punch_in: string;
-  punch_out: string | null;
-  date: string;
-  selfie: string | null;
-  punch_in_location: { latitude: number; longitude: number; accuracy: number } | null;
-  punch_out_location: { latitude: number; longitude: number; accuracy: number } | null;
-  total_visits_logged: number;
-  daily_target: number;
-  status: string;
-  exception_reason: string | null;
+type TabView = 'COMMERCIAL' | 'OFFICER_AUDIT' | 'EVIDENCE_LOG';
+
+interface ImageModalState {
+  isOpen: boolean;
+  title: string;
+  subtitle: string;
+  src: string | null;
 }
 
-const Reports: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'ANALYTICS' | 'AUDIT'>('ANALYTICS');
+export const Reports: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<TabView>('COMMERCIAL');
   const [visits, setVisits] = useState<Visit[]>([]);
-  const [attendanceLogs, setAttendanceLogs] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const fetchCoreTelemetry = async () => {
+  // Search & Filter State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedOutcomeFilter, setSelectedOutcomeFilter] = useState('ALL');
+  const [selectedOfficerFilter, setSelectedOfficerFilter] = useState('ALL');
+
+  // Photo Audit Modal State
+  const [imageModal, setImageModal] = useState<ImageModalState>({
+    isOpen: false,
+    title: '',
+    subtitle: '',
+    src: null
+  });
+  const [imageLoadError, setImageLoadError] = useState(false);
+
+  const fetchFieldLogs = async () => {
+    setLoading(true);
     try {
-      const [visitsData, attendanceData] = await Promise.all([
-        api.request('/visits'),
-        api.request('/attendance')
-      ]);
-      setVisits(Array.isArray(visitsData) ? visitsData : []);
-      setAttendanceLogs(Array.isArray(attendanceData) ? attendanceData : []);
+      const data = await api.request('/visits');
+      setVisits(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Failed synchronizing management metrics data streams:", err);
+      console.error('Failed to synchronize field audit data:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCoreTelemetry();
+    fetchFieldLogs();
   }, []);
 
-  const handleAuditDecision = async (id: string, resolution: 'APPROVED_FULL' | 'APPROVED_HALF' | 'REJECTED') => {
-    setActionLoading(id);
-    try {
-      const { error } = await supabase
-        .from('attendance')
-        .update({ status: resolution })
-        .eq('id', id);
+  // Filtered Visits Engine
+  const filteredVisits = useMemo(() => {
+    return visits.filter((v: any) => {
+      const comp = (v.companyName || v.company_name || '').toLowerCase();
+      const rep = (v.representativeName || v.representative_name || '').toLowerCase();
+      const phone = (v.phoneNumber || v.phone_number || '').toLowerCase();
+      const outcome = (v.interactionOutcome || v.interaction_outcome || '').toUpperCase();
+      const term = searchTerm.toLowerCase();
 
-      if (error) throw error;
-      await fetchCoreTelemetry();
-    } catch (err: any) {
-      alert(`Failed to update operational status: ${err.message}`);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+      const matchesSearch = comp.includes(term) || rep.includes(term) || phone.includes(term);
+      const matchesOutcome = selectedOutcomeFilter === 'ALL' || outcome === selectedOutcomeFilter;
+      const matchesOfficer = selectedOfficerFilter === 'ALL' || rep === selectedOfficerFilter.toLowerCase();
 
-  const getChartData = () => {
-    const dailyMap: Record<string, number> = {};
-    const sortedVisits = [...visits].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+      return matchesSearch && matchesOutcome && matchesOfficer;
+    });
+  }, [visits, searchTerm, selectedOutcomeFilter, selectedOfficerFilter]);
 
-    sortedVisits.forEach((v) => {
-      const date = new Date(v.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      dailyMap[date] = (dailyMap[date] || 0) + 1;
+  // Unique Officers Roster
+  const officerNames = useMemo(() => {
+    const set = new Set<string>();
+    visits.forEach((v: any) => {
+      const name = v.representativeName || v.representative_name;
+      if (name) set.add(name);
+    });
+    return Array.from(set);
+  }, [visits]);
+
+  // Analytics Math Engine
+  const kpis = useMemo(() => {
+    const total = visits.length;
+    let interested = 0;
+    let verifiedGps = 0;
+    let hasPhotos = 0;
+
+    visits.forEach((v: any) => {
+      const outcome = v.interactionOutcome || v.interaction_outcome;
+      if (outcome === 'INTERESTED' || outcome === 'DEMO_SCHEDULED') interested += 1;
+
+      const lat = v.location?.latitude ?? v.latitude;
+      const lng = v.location?.longitude ?? v.longitude;
+      if (typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng)) {
+        verifiedGps += 1;
+      }
+
+      if (v.boardPhoto || v.board_photo || v.repPhoto || v.rep_photo) {
+        hasPhotos += 1;
+      }
     });
 
-    const mapped = Object.entries(dailyMap).map(([name, visitsCount]) => ({ name, visits: visitsCount }));
-    return mapped.length > 0 ? mapped.slice(-10) : [{ name: 'Today', visits: 0 }];
+    const conversionRate = total > 0 ? ((interested / total) * 100).toFixed(1) : '0';
+    const gpsRate = total > 0 ? Math.round((verifiedGps / total) * 100) : 0;
+
+    return { total, interested, verifiedGps, hasPhotos, conversionRate, gpsRate };
+  }, [visits]);
+
+  // Daily Chart Telemetry
+  const chartTelemetry = useMemo(() => {
+    const map: Record<string, number> = {};
+    const sorted = [...visits].sort((a: any, b: any) => {
+      const ta = new Date(a.timestamp || a.created_at).getTime();
+      const tb = new Date(b.timestamp || b.created_at).getTime();
+      return ta - tb;
+    });
+
+    sorted.forEach((v: any) => {
+      const stamp = v.timestamp || v.created_at;
+      if (!stamp) return;
+      const dateKey = new Date(stamp).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+      map[dateKey] = (map[dateKey] || 0) + 1;
+    });
+
+    const entries = Object.entries(map).map(([name, count]) => ({ name, pitches: count }));
+    return entries.length > 0 ? entries.slice(-14) : [{ name: 'Today', pitches: 0 }];
+  }, [visits]);
+
+  // Officer Leaderboard Breakdown
+  const officerPerformance = useMemo(() => {
+    const map: Record<string, { total: number; leads: number; withGps: number; withSelfie: number }> = {};
+
+    visits.forEach((v: any) => {
+      const name = v.representativeName || v.representative_name || 'Field Officer';
+      if (!map[name]) map[name] = { total: 0, leads: 0, withGps: 0, withSelfie: 0 };
+
+      map[name].total += 1;
+      const outcome = v.interactionOutcome || v.interaction_outcome;
+      if (outcome === 'INTERESTED' || outcome === 'DEMO_SCHEDULED') map[name].leads += 1;
+
+      const lat = v.location?.latitude ?? v.latitude;
+      if (lat != null) map[name].withGps += 1;
+
+      if (v.repPhoto || v.rep_photo) map[name].withSelfie += 1;
+    });
+
+    return Object.entries(map)
+      .map(([officer, data]) => ({ officer, ...data }))
+      .sort((a, b) => b.total - a.total);
+  }, [visits]);
+
+  const openImageModal = (title: string, subtitle: string, src: string | null | undefined) => {
+    setImageLoadError(false);
+    setImageModal({
+      isOpen: true,
+      title,
+      subtitle,
+      src: src && src.trim().length > 20 ? src : null
+    });
+  };
+
+  const closeImageModal = () => {
+    setImageModal({ isOpen: false, title: '', subtitle: '', src: null });
+    setImageLoadError(false);
+  };
+
+  const handleDownloadImage = () => {
+    if (!imageModal.src) return;
+    try {
+      const a = document.createElement('a');
+      a.href = imageModal.src;
+      a.download = `${imageModal.title.replace(/\s+/g, '_')}_${Date.now()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      alert('Unable to download this asset directly.');
+    }
   };
 
   const handleExportCSV = () => {
-    if (visits.length === 0) {
-      alert("No visit records available for export.");
+    if (filteredVisits.length === 0) {
+      alert('No inspection records match the current filter criteria.');
       return;
     }
-    const headers = ['ID', 'Company', 'Representative', 'Contact', 'Phone', 'Date', 'Outcome'];
-    const rows = visits.map((v: any) => [
-      `"${v.id || ''}"`,
-      `"${v.companyName || ''}"`,
-      `"${v.representativeName || ''}"`,
-      `"${v.contactPerson || ''}"`,
-      `"${v.phoneNumber || ''}"`,
-      `"${new Date(v.timestamp).toLocaleString('en-IN')}"`,
-      `"${v.interactionOutcome || ''}"`
-    ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map((r) => r.join(','))].join("\n");
+    const headers = [
+      'Record ID',
+      'Establishment',
+      'Field Officer',
+      'Contact Person',
+      'Mobile Number',
+      'Inspection Date',
+      'Outcome',
+      'GPS Latitude',
+      'GPS Longitude',
+      'Notes & Manning Requirements'
+    ];
+
+    const rows = filteredVisits.map((v: any) => {
+      const lat = v.location?.latitude ?? v.latitude ?? '';
+      const lng = v.location?.longitude ?? v.longitude ?? '';
+      const stamp = v.timestamp || v.created_at;
+      const dateStr = stamp ? new Date(stamp).toLocaleString('en-IN') : 'N/A';
+
+      return [
+        `"${v.id || ''}"`,
+        `"${(v.companyName || v.company_name || '').replace(/"/g, '""')}"`,
+        `"${(v.representativeName || v.representative_name || '').replace(/"/g, '""')}"`,
+        `"${(v.contactPerson || v.contact_person || '').replace(/"/g, '""')}"`,
+        `"${v.phoneNumber || v.phone_number || ''}"`,
+        `"${dateStr}"`,
+        `"${v.interactionOutcome || v.interaction_outcome || ''}"`,
+        `"${lat}"`,
+        `"${lng}"`,
+        `"${(v.notes || '').replace(/"/g, '""')}"`
+      ];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `VSF_FieldAudit_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `VSF_Field_Audit_Inspection_Docket_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -121,410 +261,564 @@ const Reports: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-3 bg-[#FBFBF9]">
-        <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center shadow-xs">
-          <Loader2 className="animate-spin text-red-700" size={26} />
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-3 bg-slate-50">
+        <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shadow-xs">
+          <Loader2 className="animate-spin text-red-700" size={20} />
         </div>
-        <p className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest animate-pulse">
-          Compiling Audit Telemetry...
+        <p className="text-[11px] font-mono font-semibold text-slate-500 uppercase tracking-widest">
+          Synchronizing field inspection telemetry...
         </p>
       </div>
     );
   }
 
-  const chartData = getChartData();
-  const quota = 100;
-  const progress = Math.min(100, (visits.length / quota) * 100);
-
   return (
-    <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300 pb-12 px-1 sm:px-2">
+    <div className="max-w-7xl mx-auto space-y-6 pb-16 px-1 sm:px-2 animate-in fade-in duration-200">
 
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-slate-200/90 p-6 rounded-3xl shadow-xs">
+      {/* Header Bar */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2 text-red-700 mb-1">
-            <ShieldAlert size={16} />
-            <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-red-800">
-              Operations Audit Console
+            <ShieldCheck size={16} />
+            <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-slate-500">
+              Operations &amp; Compliance Audit Desk
             </span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight uppercase">
-            Analytics &amp; Audit Desk
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight uppercase">
+            Field Inspection Intelligence
           </h1>
-          <p className="text-slate-500 font-medium text-xs mt-0.5">
-            Real-time biometric attendance review &amp; commercial visit telemetry
+          <p className="text-slate-500 text-xs mt-0.5 font-medium">
+            Biometric verification, GPS satellite audit compliance, and commercial pipeline velocity
           </p>
         </div>
 
-        {/* Workspace Segment Toggles */}
-        <div className="flex items-center gap-2">
-          <div className="bg-[#FBFBF9] p-1 rounded-2xl border border-slate-200 flex space-x-1">
-            <button
-              onClick={() => setActiveTab('ANALYTICS')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
-                activeTab === 'ANALYTICS'
-                  ? 'bg-red-700 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Performance Graphs
-            </button>
-            <button
-              onClick={() => setActiveTab('AUDIT')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
-                activeTab === 'AUDIT'
-                  ? 'bg-red-700 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Attendance &amp; GPS Auditing
-            </button>
-          </div>
+        {/* View Switchers */}
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setActiveTab('COMMERCIAL')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              activeTab === 'COMMERCIAL'
+                ? 'bg-red-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Pipeline Velocity
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('OFFICER_AUDIT')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              activeTab === 'OFFICER_AUDIT'
+                ? 'bg-red-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Officer Roster Audit
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('EVIDENCE_LOG')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              activeTab === 'EVIDENCE_LOG'
+                ? 'bg-red-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Evidence &amp; GPS Log
+          </button>
         </div>
       </div>
 
-      {activeTab === 'ANALYTICS' ? (
-        /* ==================== WORKSPACE A: ANALYTICS CORE ==================== */
-        <div className="space-y-6">
-          <div className="flex items-center justify-end space-x-2">
-            <button
-              onClick={handleExportCSV}
-              className="flex items-center px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 font-bold transition shadow-xs text-xs uppercase tracking-wider cursor-pointer"
-            >
-              <FileSpreadsheet size={14} className="mr-2 text-emerald-600" /> Export CSV
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="flex items-center px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 font-bold transition shadow-xs text-xs uppercase tracking-wider cursor-pointer"
-            >
-              <FileText size={14} className="mr-2 text-red-700" /> Print Summary
-            </button>
+      {/* KPI Stats Ribbon */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-medium uppercase tracking-wider">Total Inspections</span>
+            <Building2 size={16} className="text-slate-400" />
           </div>
+          <p className="text-2xl font-black text-slate-900 tabular-nums">{kpis.total}</p>
+          <span className="text-[11px] font-medium text-slate-400 block">Logged physical site drops</span>
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6 min-w-0">
-              <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs min-h-[380px] flex flex-col min-w-0">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h2 className="text-xs font-black text-slate-900 uppercase tracking-widest">
-                      Patrol Volume Aggregate
-                    </h2>
-                    <p className="text-[10px] font-medium text-slate-400 uppercase mt-0.5">
-                      Client interaction timelines
-                    </p>
-                  </div>
-                  <span className="px-3 py-1 bg-red-50 text-red-700 border border-red-200 rounded-xl text-[9px] font-mono font-bold uppercase tracking-wider">
-                    Synced Live
-                  </span>
-                </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-medium uppercase tracking-wider">High-Intent Leads</span>
+            <Target size={16} className="text-amber-600" />
+          </div>
+          <p className="text-2xl font-black text-slate-900 tabular-nums">{kpis.interested}</p>
+          <span className="text-[11px] font-medium text-emerald-700 block">
+            {kpis.conversionRate}% Commercial interest rate
+          </span>
+        </div>
 
-                <div className="flex-1 w-full min-h-[260px] min-w-0 pt-2">
-                  {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={260}>
-                      <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient id="colorVisitsRed" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#B91C1C" stopOpacity={0.25} />
-                            <stop offset="95%" stopColor="#B91C1C" stopOpacity={0.0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis
-                          dataKey="name"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }}
-                        />
-                        <YAxis
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 10 }}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#ffffff',
-                            borderRadius: '16px',
-                            border: '1px solid #e2e8f0',
-                            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)',
-                            fontSize: '11px',
-                            fontWeight: 'bold'
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="visits"
-                          stroke="#B91C1C"
-                          strokeWidth={3}
-                          fillOpacity={1}
-                          fill="url(#colorVisitsRed)"
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-                      <Database size={36} className="text-slate-300 mb-2" />
-                      <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">
-                        No activity metrics logged yet
-                      </p>
-                    </div>
-                  )}
-                </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-medium uppercase tracking-wider">GPS Satellite Verified</span>
+            <MapPin size={16} className="text-red-700" />
+          </div>
+          <p className="text-2xl font-black text-slate-900 tabular-nums">{kpis.verifiedGps}</p>
+          <span className="text-[11px] font-medium text-slate-400 block">
+            {kpis.gpsRate}% Hardware coordinates locked
+          </span>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-medium uppercase tracking-wider">Visual Audit Proof</span>
+            <Camera size={16} className="text-slate-600" />
+          </div>
+          <p className="text-2xl font-black text-slate-900 tabular-nums">{kpis.hasPhotos}</p>
+          <span className="text-[11px] font-medium text-slate-400 block">Gate or selfie tokens stored</span>
+        </div>
+      </div>
+
+      {/* ============================================================== */}
+      {/* TAB 1: COMMERCIAL VELOCITY & PIPELINE TELEMETRY                */}
+      {/* ============================================================== */}
+      {activeTab === 'COMMERCIAL' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-tight">
+                  Site Visit Volume Aggregate
+                </h3>
+                <p className="text-xs text-slate-500">Daily verification pitches across Madhya Pradesh</p>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                <div className="bg-gradient-to-br from-red-700 to-red-900 p-6 rounded-3xl text-white shadow-xs relative overflow-hidden">
-                  <TrendingUp className="absolute top-0 right-0 w-28 h-28 text-white/10 -mr-6 -mt-6 pointer-events-none" />
-                  <h3 className="text-red-100 text-[10px] font-mono font-bold uppercase tracking-widest mb-1">
-                    Monthly Quota Velocity
-                  </h3>
-                  <p className="text-3xl font-black mb-3">{progress.toFixed(1)}%</p>
-                  <div className="w-full bg-red-950/40 rounded-full h-1.5 overflow-hidden">
-                    <div className="bg-amber-300 h-full rounded-full transition-all duration-1000" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-
-                <div className="bg-slate-900 p-6 rounded-3xl text-white shadow-xs relative overflow-hidden">
-                  <Target className="absolute top-0 right-0 w-28 h-28 text-slate-800/40 -mr-6 -mt-6 pointer-events-none" />
-                  <h3 className="text-slate-400 text-[10px] font-mono font-bold uppercase tracking-widest mb-1">
-                    Logged Pitches Total
-                  </h3>
-                  <p className="text-3xl font-black mb-3">{visits.length} / {quota}</p>
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div className="bg-red-600 h-full rounded-full transition-all duration-1000" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-              </div>
+              <span className="px-2.5 py-1 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-mono font-semibold">
+                Daily Trend
+              </span>
             </div>
 
-            {/* Sidebar Leaderboard */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                  Top Field Representatives
-                </h2>
-                <span className="text-[9px] font-mono font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-full">
-                  Ranked
-                </span>
-              </div>
+            <div className="w-full h-72 pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartTelemetry}>
+                  <defs>
+                    <linearGradient id="colorVisitsRed" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#b91c1c" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#b91c1c" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 11 }}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#ffffff',
+                      borderRadius: '12px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                      fontSize: '12px',
+                      fontWeight: 600
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="pitches"
+                    stroke="#b91c1c"
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill="url(#colorVisitsRed)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
 
-              <div className="space-y-2.5">
-                {visits.length === 0 ? (
-                  <p className="text-center text-slate-400 text-xs font-medium uppercase py-8">
-                    No field activity logged
-                  </p>
-                ) : (
-                  Object.entries(
-                    visits.reduce((acc, v) => {
-                      acc[v.representativeName] = (acc[v.representativeName] || 0) + 1;
-                      return acc;
-                    }, {} as Record<string, number>)
-                  )
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 6)
-                    .map(([name, count], i) => (
+          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-tight">
+                Meeting Outcome Distribution
+              </h3>
+              <p className="text-xs text-slate-500">Commercial client conversion breakdown</p>
+            </div>
+
+            <div className="space-y-3">
+              {['INTERESTED', 'DEMO_SCHEDULED', 'CALLBACK', 'DISCUSSED', 'NOT_INTERESTED'].map((outcomeKey) => {
+                const count = visits.filter(
+                  (v: any) => (v.interactionOutcome || v.interaction_outcome) === outcomeKey
+                ).length;
+                const pct = visits.length > 0 ? ((count / visits.length) * 100).toFixed(0) : '0';
+
+                return (
+                  <div key={outcomeKey} className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-slate-700 uppercase tracking-wider">
+                        {outcomeKey.replace(/_/g, ' ')}
+                      </span>
+                      <span className="font-mono text-slate-500 font-bold">
+                        {count} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        key={name}
-                        className="flex items-center justify-between p-3 bg-[#FBFBF9] rounded-2xl border border-slate-200/80"
-                      >
-                        <div className="flex items-center space-x-3 min-w-0">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
-                            i === 0 ? 'bg-amber-400 text-amber-950' : 'bg-red-700 text-white'
-                          }`}>
-                            {i + 1}
-                          </div>
-                          <span className="text-xs font-black text-slate-900 uppercase truncate">
-                            {name}
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-mono font-bold bg-white text-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 shadow-xs shrink-0">
-                          {count} VISITS
-                        </span>
-                      </div>
-                    ))
-                )}
-              </div>
+                        className={`h-full rounded-full ${
+                          outcomeKey === 'INTERESTED'
+                            ? 'bg-emerald-600'
+                            : outcomeKey === 'DEMO_SCHEDULED'
+                            ? 'bg-amber-600'
+                            : outcomeKey === 'CALLBACK'
+                            ? 'bg-blue-600'
+                            : 'bg-slate-400'
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 space-y-1 font-mono">
+              <p>&bull; Target: Minimum 7 site surveys per officer daily[cite: 2]</p>
+              <p>&bull; PSARA MP License: PSA/L/74/MP/2023/FEB/3/425</p>[cite: 5]
             </div>
           </div>
         </div>
-      ) : (
-        /* ==================== WORKSPACE B: GPS & ATTENDANCE AUDIT TERMINAL ==================== */
-        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-xs space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 2: FIELD OFFICER AUDIT ROSTER                              */}
+      {/* ============================================================== */}
+      {activeTab === 'OFFICER_AUDIT' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-              <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                Shift Biometric &amp; Exception Auditing
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-tight">
+                Field Officer Accountability &amp; Integrity Roster
               </h3>
-              <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mt-0.5">
-                Verify mobile check-in selfies and lock coordinates against registered site boundaries
-              </p>
+              <p className="text-xs text-slate-500">Cross-verified against GPS coordinates and photographic tokens</p>
             </div>
-            <span className="text-[9.5px] font-mono font-bold text-slate-700 bg-[#FBFBF9] border border-slate-200 px-2.5 py-1 rounded-xl">
-              {attendanceLogs.length} Records Logged
+            <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full">
+              {officerPerformance.length} Officers Deployed
             </span>
           </div>
 
-          {attendanceLogs.length === 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[700px]">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500">
+                  <th className="py-3 px-4">Officer Name</th>
+                  <th className="py-3 px-4 text-center">Total Site Drops</th>
+                  <th className="py-3 px-4 text-center">Converted Leads</th>
+                  <th className="py-3 px-4 text-center">GPS Satellite Locks</th>
+                  <th className="py-3 px-4 text-center">Selfie Audits</th>
+                  <th className="py-3 px-4 text-right">Compliance Grade</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {officerPerformance.map((item, idx) => {
+                  const complianceScore =
+                    item.total > 0
+                      ? Math.round(((item.withGps + item.withSelfie) / (item.total * 2)) * 100)
+                      : 0;
+
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50 transition">
+                      <td className="py-3.5 px-4 font-bold text-slate-900 uppercase">
+                        {item.officer}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-800">
+                        {item.total}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-emerald-700">
+                        {item.leads}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono text-slate-600">
+                        {item.withGps} of {item.total}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono text-slate-600">
+                        {item.withSelfie} of {item.total}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+                            complianceScore >= 80
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : complianceScore >= 50
+                              ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                              : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}
+                        >
+                          {complianceScore}% Verified
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 3: EVIDENTIARY LOG & INLINE PHOTO AUDITING                 */}
+      {/* ============================================================== */}
+      {activeTab === 'EVIDENCE_LOG' && (
+        <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-2 flex-1 max-w-md">
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-2.5 text-slate-400" size={15} />
+                <input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search establishment, officer, or phone..."
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-red-700 focus:bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={selectedOutcomeFilter}
+                onChange={(e) => setSelectedOutcomeFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none"
+              >
+                <option value="ALL">All Outcomes</option>
+                <option value="INTERESTED">Interested</option>
+                <option value="DEMO_SCHEDULED">Site Survey Scheduled</option>
+                <option value="CALLBACK">Callback</option>
+                <option value="DISCUSSED">Brochure Handed</option>
+                <option value="NOT_INTERESTED">Not Interested</option>
+              </select>
+
+              <select
+                value={selectedOfficerFilter}
+                onChange={(e) => setSelectedOfficerFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none"
+              >
+                <option value="ALL">All Officers</option>
+                {officerNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <FileSpreadsheet size={14} className="text-emerald-400" />
+                <span>Export CSV</span>
+              </button>
+            </div>
+          </div>
+
+          {filteredVisits.length === 0 ? (
             <div className="text-center py-16 text-slate-400 space-y-2">
-              <Database size={40} className="mx-auto text-slate-300" />
-              <p className="text-xs font-medium uppercase">
-                No remote attendance records stored in database yet.
+              <Database size={36} className="mx-auto text-slate-300" />
+              <p className="text-xs font-medium uppercase tracking-wider">
+                No inspection records match your active query.
               </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[850px]">
+              <table className="w-full text-left border-collapse min-w-[900px]">
                 <thead>
-                  <tr className="border-b border-slate-200 text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider bg-[#FBFBF9]">
-                    <th className="py-3 px-4">Officer</th>
-                    <th className="py-3 px-4">Date</th>
-                    <th className="py-3 px-4">Live Snapshot</th>
-                    <th className="py-3 px-4">Shift Timestamps</th>
-                    <th className="py-3 px-4">Performance Check</th>
-                    <th className="py-3 px-4">Status &amp; Notes</th>
-                    <th className="py-3 px-4 text-right">Audit Action</th>
+                  <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500">
+                    <th className="py-3 px-3">Establishment</th>
+                    <th className="py-3 px-3">Officer</th>
+                    <th className="py-3 px-3">Contact Person</th>
+                    <th className="py-3 px-3">Timestamp</th>
+                    <th className="py-3 px-3">Outcome</th>
+                    <th className="py-3 px-3">GPS Location</th>
+                    <th className="py-3 px-3 text-right">Photo Audit Tokens</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700">
-                  {attendanceLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-50/60 transition-all align-top">
+                <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
+                  {filteredVisits.map((v: any) => {
+                    const comp = v.companyName || v.company_name || 'Establishment';
+                    const rep = v.representativeName || v.representative_name || 'Officer';
+                    const contact = v.contactPerson || v.contact_person || 'N/A';
+                    const phone = v.phoneNumber || v.phone_number || '';
+                    const stamp = v.timestamp || v.created_at;
+                    const outcome = (v.interactionOutcome || v.interaction_outcome || 'VISITED') as string;
 
-                      {/* Name */}
-                      <td className="py-4 px-4 font-black text-slate-900 uppercase tracking-tight max-w-[140px] truncate">
-                        {log.user_name}
-                      </td>
+                    const lat = v.location?.latitude ?? v.latitude;
+                    const lng = v.location?.longitude ?? v.longitude;
+                    const hasGps = typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng);
 
-                      {/* Date */}
-                      <td className="py-4 px-4 font-mono font-bold text-slate-500">
-                        {log.date}
-                      </td>
+                    const boardPic = v.boardPhoto || v.board_photo;
+                    const repPic = v.repPhoto || v.rep_photo;
 
-                      {/* Selfie */}
-                      <td className="py-4 px-4">
-                        {log.selfie ? (
-                          <div className="relative w-12 h-12 rounded-xl overflow-hidden group border border-slate-200 shadow-xs bg-slate-100">
-                            <img src={log.selfie} className="w-full h-full object-cover" alt="Biometric Token" />
-                            <a
-                              href={log.selfie}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity"
-                            >
-                              <Eye size={12} />
-                            </a>
-                          </div>
-                        ) : (
-                          <span className="text-[9px] font-mono font-bold text-slate-400 uppercase">NO_PHOTO</span>
-                        )}
-                      </td>
-
-                      {/* Timestamps & GPS Pin */}
-                      <td className="py-4 px-4 space-y-1">
-                        <div className="flex items-center text-[11px] text-slate-900 font-bold font-mono">
-                          <Clock size={11} className="mr-1 text-slate-400" />
-                          <span>IN: {new Date(log.punch_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                        {log.punch_out ? (
-                          <div className="flex items-center text-[11px] text-slate-900 font-bold font-mono">
-                            <Clock size={11} className="mr-1 text-slate-400" />
-                            <span>OUT: {new Date(log.punch_out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                          </div>
-                        ) : (
-                          <span className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded uppercase block w-fit">
-                            DUTY ACTIVE
+                    return (
+                      <tr key={v.id} className="hover:bg-slate-50 transition">
+                        <td className="py-3 px-3 font-bold text-slate-900 uppercase max-w-[200px] truncate">
+                          {comp}
+                        </td>
+                        <td className="py-3 px-3 text-slate-800 font-semibold">{rep}</td>
+                        <td className="py-3 px-3">
+                          <span className="block font-semibold text-slate-800">{contact}</span>
+                          {phone && <span className="font-mono text-slate-400 block text-[11px]">+91 {phone}</span>}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-slate-500">
+                          {stamp ? new Date(stamp).toLocaleDateString('en-IN') : 'N/A'}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase ${
+                              outcome === 'INTERESTED'
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                : outcome === 'DEMO_SCHEDULED'
+                                ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                                : outcome === 'CALLBACK'
+                                ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            {outcome.replace(/_/g, ' ')}
                           </span>
-                        )}
-
-                        <div className="pt-1 flex flex-col gap-0.5 font-mono text-[9px] text-slate-500">
-                          {log.punch_in_location && (
+                        </td>
+                        <td className="py-3 px-3">
+                          {hasGps ? (
                             <a
-                              href={`https://www.google.com/maps?q=${log.punch_in_location.latitude},${log.punch_in_location.longitude}`}
+                              href={`https://www.google.com/maps?q=${lat},${lng}`}
                               target="_blank"
-                              rel="noreferrer"
-                              className="hover:text-red-700 hover:underline flex items-center"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-red-700 font-mono text-[11px] font-semibold hover:underline"
                             >
-                              <MapPin size={9} className="mr-0.5 text-red-700" /> View Punch GPS
+                              <MapPin size={11} />
+                              <span>{Number(lat).toFixed(4)}, {Number(lng).toFixed(4)}</span>
+                              <ExternalLink size={10} />
                             </a>
+                          ) : (
+                            <span className="text-slate-400 text-[11px] font-mono">No GPS Lock</span>
                           )}
-                        </div>
-                      </td>
-
-                      {/* Pitch Progress */}
-                      <td className="py-4 px-4">
-                        <span className="font-mono text-slate-900 font-bold block">
-                          {log.total_visits_logged || 0} / {log.daily_target || 7} Drops
-                        </span>
-                        <div className="w-20 bg-slate-100 h-1.5 rounded-full overflow-hidden mt-1">
-                          <div
-                            className="h-full bg-red-700 rounded-full"
-                            style={{
-                              width: `${Math.min(((log.total_visits_logged || 0) / (log.daily_target || 7)) * 100, 100)}%`
-                            }}
-                          />
-                        </div>
-                      </td>
-
-                      {/* Exception Reasoning Context */}
-                      <td className="py-4 px-4 max-w-[220px]">
-                        <span
-                          className={`px-2 py-0.5 rounded font-mono font-bold text-[9px] uppercase tracking-wider block w-fit border ${
-                            log.status === 'COMPLETED' || log.status?.startsWith('APPROVED')
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              : log.status === 'PENDING_REVIEW'
-                              ? 'bg-amber-50 text-amber-900 border-amber-200'
-                              : 'bg-slate-100 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          {log.status}
-                        </span>
-
-                        {log.exception_reason && (
-                          <div className="mt-1.5 bg-[#FBFBF9] p-2 rounded-xl border border-slate-200 text-[10px] text-slate-600 leading-normal">
-                            <span className="font-bold text-amber-800 block mb-0.5 text-[8.5px] uppercase tracking-wider">
-                              Reported Note:
-                            </span>
-                            &ldquo;{log.exception_reason}&rdquo;
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="py-4 px-4 text-right">
-                        {actionLoading === log.id ? (
-                          <Loader2 className="animate-spin text-slate-400 inline" size={15} />
-                        ) : log.status === 'PENDING_REVIEW' ? (
-                          <div className="flex flex-col gap-1 items-end">
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Gate Signboard Inspection Button */}
                             <button
-                              onClick={() => handleAuditDecision(log.id, 'APPROVED_FULL')}
-                              className="flex items-center space-x-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg shadow-xs transition cursor-pointer"
+                              type="button"
+                              onClick={() => openImageModal(`Gate / Signboard Inspection: ${comp}`, `Logged by ${rep}`, boardPic)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition flex items-center gap-1 cursor-pointer ${
+                                boardPic
+                                  ? 'bg-slate-900 hover:bg-black text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-400'
+                              }`}
+                              title={boardPic ? 'Inspect Gate Photo' : 'No Gate Photo on File'}
                             >
-                              <UserCheck size={10} /> <span>Approve Full Day</span>
+                              <Building2 size={11} />
+                              <span>Gate</span>
                             </button>
+
+                            {/* Officer Selfie Inspection Button */}
                             <button
-                              onClick={() => handleAuditDecision(log.id, 'APPROVED_HALF')}
-                              className="flex items-center space-x-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-amber-950 text-[9px] font-bold uppercase tracking-wider rounded-lg shadow-xs transition cursor-pointer"
+                              type="button"
+                              onClick={() => openImageModal(`Officer Verification Selfie: ${rep}`, `Site Visit at ${comp}`, repPic)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition flex items-center gap-1 cursor-pointer ${
+                                repPic
+                                  ? 'bg-red-700 hover:bg-red-800 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-400'
+                              }`}
+                              title={repPic ? 'Inspect Selfie Biometric' : 'No Selfie on File'}
                             >
-                              <FileCheck2 size={10} /> <span>Approve Half Day</span>
-                            </button>
-                            <button
-                              onClick={() => handleAuditDecision(log.id, 'REJECTED')}
-                              className="flex items-center space-x-1 px-2.5 py-1 bg-red-700 hover:bg-red-800 text-white text-[9px] font-bold uppercase tracking-wider rounded-lg shadow-xs transition cursor-pointer"
-                            >
-                              <XCircle size={10} /> <span>Reject / Penalize</span>
+                              <UserCheck size={11} />
+                              <span>Selfie</span>
                             </button>
                           </div>
-                        ) : (
-                          <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-widest select-none">
-                            AUDITED
-                          </span>
-                        )}
-                      </td>
-
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* IN-APP PHOTO AUDIT MODAL (PREVENTS BLANK DATA-URI TABS)        */}
+      {/* ============================================================== */}
+      {imageModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-xs font-black uppercase text-slate-900 truncate">
+                  {imageModal.title}
+                </h3>
+                <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                  {imageModal.subtitle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeImageModal}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body / Image Viewport */}
+            <div className="p-4 bg-slate-900 flex items-center justify-center min-h-[320px] max-h-[70vh] overflow-hidden relative">
+              {imageModal.src && !imageLoadError ? (
+                <img
+                  src={imageModal.src}
+                  alt="Audit Token"
+                  onError={() => setImageLoadError(true)}
+                  className="max-h-[65vh] w-auto max-w-full object-contain rounded-xl shadow-md"
+                />
+              ) : (
+                <div className="text-center p-8 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-red-950/60 border border-red-700/50 flex items-center justify-center mx-auto text-red-400">
+                    <AlertTriangle size={24} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-mono font-bold text-red-300 uppercase tracking-wider">
+                      Photo Not Found in Database
+                    </h4>
+                    <p className="text-[11px] text-slate-400 max-w-xs mx-auto mt-1 leading-normal">
+                      This inspection record was logged without a visual sensor token, or the photo string was pruned during database synchronization.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="p-4 bg-white border-t border-slate-100 flex items-center justify-between gap-3">
+              <span className="text-[10px] font-mono font-semibold text-slate-400 uppercase">
+                {imageModal.src && !imageLoadError ? 'Verified Biometric Token' : 'Integrity Notice'}
+              </span>
+
+              <div className="flex items-center gap-2">
+                {imageModal.src && !imageLoadError && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadImage}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold uppercase transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download size={13} />
+                    <span>Download</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeImageModal}
+                  className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold uppercase transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -155,7 +155,7 @@ const Login: React.FC = () => {
           {/* Statutory Subtext */}
           <div className="pt-2 text-center border-t border-slate-100">
             <span className="text-[10px] font-mono font-bold text-slate-400 block">
-              PSARA License: PSA/L/74/MP/2023/FEB/3/425[cite: 5, 10, 11]
+              PSARA License: PSA/L/74/MP/2023/FEB/3/425
             </span>
           </div>
         </div>

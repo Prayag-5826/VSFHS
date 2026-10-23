@@ -69,7 +69,7 @@ const ManageUsers: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select('id,name,email,phone,role,avatar,dob,created_at,status,login_attempts,block_reason,created_by,visit_target')
         .order('name', { ascending: true });
 
       if (!error && data) {
@@ -180,21 +180,22 @@ const ManageUsers: React.FC = () => {
     }
 
     const userId = resetReasonModal.user.id;
-    // 8-digit numeric password
-    const newPassword = Math.floor(10000000 + Math.random() * 90000000).toString();
+    // 8-digit numeric password from a secure random source
+    const rand = new Uint32Array(1);
+    crypto.getRandomValues(rand);
+    const newPassword = (10000000 + (rand[0] % 90000000)).toString();
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
+      // Goes through the server function: hashes the password and signs the user out everywhere
+      await api.request(`/users/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
           password: newPassword,
           status: 'ACTIVE',
-          login_attempts: 0,
-          block_reason: `OVERRIDE: ${resetReasonModal.reason}`
+          loginAttempts: 0,
+          blockReason: `OVERRIDE: ${resetReasonModal.reason}`
         })
-        .eq('id', userId);
-
-      if (error) throw error;
+      });
 
       setResetReasonModal({ isOpen: false, user: null, reason: '' });
       setResetModal({ isOpen: true, userId, newPass: newPassword });

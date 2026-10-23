@@ -21,6 +21,13 @@ import {
 import { api } from '../services/apiService';
 import { Role, User as UserType } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { canvasToCompressedDataUrl } from '../services/imageCompress';
+
+/** Escapes text before it is written into a print window's HTML. */
+const esc = (value: unknown): string =>
+  String(value ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)
+  );
 
 const AddUser: React.FC = () => {
   const { user: currentUser } = useAuth();
@@ -92,7 +99,7 @@ const AddUser: React.FC = () => {
         const startX = (video.videoWidth - size) / 2;
         const startY = (video.videoHeight - size) / 2;
         ctx.drawImage(video, startX, startY, size, size, 0, 0, size, size);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const dataUrl = canvasToCompressedDataUrl(canvas, { maxSize: 512, quality: 0.75 });
         setFormData((prev) => ({ ...prev, photo: dataUrl }));
         stopCamera();
       }
@@ -101,9 +108,12 @@ const AddUser: React.FC = () => {
 
   // Simplified VSF credentials logic
   const generateCredentials = () => {
-    const randomBadge = Math.floor(100000 + Math.random() * 900000);
+    // crypto.getRandomValues is unpredictable; Math.random is not safe for passwords.
+    const rand = new Uint32Array(2);
+    crypto.getRandomValues(rand);
+    const randomBadge = 100000 + (rand[0] % 900000);
     const userId = `VSFHS${randomBadge}`;
-    const password = Math.floor(10000000 + Math.random() * 90000000).toString();
+    const password = (10000000 + (rand[1] % 90000000)).toString();
     return { userId, password };
   };
 
@@ -195,7 +205,7 @@ const AddUser: React.FC = () => {
         <!DOCTYPE html>
         <html>
           <head>
-            <title>VSF Personnel Deployment Docket - ${generatedUser.id}</title>
+            <title>VSF Personnel Deployment Docket - ${esc(generatedUser.id)}</title>
             <style>
               * { box-sizing: border-box; margin: 0; padding: 0; }
               body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 30px; color: #0f172a; background: #fff; }
@@ -224,29 +234,29 @@ const AddUser: React.FC = () => {
 
               ${generatedUser.avatar ? `
                 <div class="photo-container">
-                  <img src="${generatedUser.avatar}" alt="Officer Photo" />
+                  <img src="${esc(generatedUser.avatar)}" alt="Officer Photo" />
                 </div>
               ` : ''}
 
               <div class="grid-row">
                 <span class="label">Officer Name</span>
-                <span class="value">${generatedUser.name}</span>
+                <span class="value">${esc(generatedUser.name)}</span>
               </div>
               <div class="grid-row">
                 <span class="label">Assigned Role</span>
-                <span class="value">${generatedUser.role.replace(/_/g, ' ')}</span>
+                <span class="value">${esc(generatedUser.role.replace(/_/g, ' '))}</span>
               </div>
               <div class="grid-row">
                 <span class="label">Contact Mobile</span>
-                <span class="value">+91 ${generatedUser.phone}</span>
+                <span class="value">+91 ${esc(generatedUser.phone)}</span>
               </div>
               <div class="grid-row">
                 <span class="label">Security Badge ID</span>
-                <span class="mono-val">${generatedUser.id}</span>
+                <span class="mono-val">${esc(generatedUser.id)}</span>
               </div>
               <div class="grid-row">
                 <span class="label">8-Digit Security Key</span>
-                <span class="mono-val" style="color: #0f172a;">${generatedUser.password}</span>
+                <span class="mono-val" style="color: #0f172a;">${esc(generatedUser.password)}</span>
               </div>
 
               <div class="footer">

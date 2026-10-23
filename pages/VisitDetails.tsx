@@ -16,10 +16,16 @@ import {
   Printer,
   ExternalLink,
   Target,
-  Tag
+  MessageCircle,
+  FileSpreadsheet
 } from 'lucide-react';
-import { Visit } from '../types';
 import { api, supabase } from '../services/apiService';
+
+/** Escapes text before it is written into a print window's HTML. */
+const esc = (value: unknown): string =>
+  String(value ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)
+  );
 
 const VisitDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -31,7 +37,6 @@ const VisitDetails: React.FC = () => {
     const fetchVisit = async () => {
       if (!id) return;
       try {
-        // Direct query to ensure all fields load regardless of PostgREST column conventions
         const { data, error } = await supabase
           .from('visits')
           .select('*')
@@ -39,7 +44,6 @@ const VisitDetails: React.FC = () => {
           .maybeSingle();
 
         if (error || !data) {
-          // Fallback through API request
           const fallbackData = await api.request(`/visits/${id}`);
           setVisit(fallbackData);
         } else {
@@ -62,6 +66,122 @@ const VisitDetails: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // 1-Click WhatsApp Proposal Outreach
+  const handleShareWhatsApp = () => {
+    if (!visit) return;
+    const phone = (visit.phoneNumber || visit.phone_number || '').replace(/\D/g, '').slice(-10);
+    if (!phone) {
+      alert('Contact mobile number not recorded.');
+      return;
+    }
+    const company = visit.companyName || visit.company_name || 'Client Establishment';
+    const text =
+      `*SITE SURVEY & SECURITY AUDIT SUMMARY* 🛡️\n` +
+      `*VIDHYA SECURITY FORCE & HOUSEKEEPING SERVICES*\n\n` +
+      `Dear Management at *${company}*,\n\n` +
+      `Our inspection officer completed the on-site physical survey for your premises.\n\n` +
+      `📋 *Inspection Outcome:* ${visit.interactionOutcome || 'Survey Completed'}\n` +
+      `📍 *Status:* Verified On-Site GPS Coordinates Recorded\n\n` +
+      `We have compiled your tailored commercial proposal under MP PSARA minimum wage norms. Kindly confirm when we may present the certified rate docket.\n\n` +
+      `📞 Managing Director: +91 98262 59292\n` +
+      `_Protection & Security • संरक्षण एवं सुरक्षा_`;
+
+    window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  // Official Post-Visit Letter Generator
+  const handlePrintPostVisitLetter = () => {
+    if (!visit) return;
+    const printWin = window.open('', '_blank');
+    if (!printWin) return;
+
+    const company = visit.companyName || visit.company_name || 'Valued Establishment';
+    const contact = visit.contactPerson || visit.contact_person || 'HR / Operations Head';
+    const phone = visit.phoneNumber || visit.phone_number || 'N/A';
+    const rep = visit.representativeName || visit.representative_name || 'Field Officer';
+    const outcome = visit.interactionOutcome || visit.interaction_outcome || 'DISCUSSED';
+    const timestamp = visit.timestamp || visit.created_at || new Date().toISOString();
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>VSF - Site Inspection Confirmation Docket - ${esc(company)}</title>
+          <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+            body { padding: 36px; color: #0f172a; line-height: 1.5; background: #fff; }
+            .sheet { border: 2px solid #b91c1c; padding: 32px; border-radius: 14px; max-width: 780px; margin: 0 auto; min-height: 960px; display: flex; flex-direction: column; justify-content: space-between; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #fecdd3; padding-bottom: 16px; }
+            .logo-title { font-size: 15px; font-weight: 900; color: #b91c1c; text-transform: uppercase; }
+            .license { font-size: 9.5px; font-family: monospace; font-weight: 700; color: #9a3412; margin-top: 3px; }
+            .client-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin: 18px 0; }
+            .subject { background: #fef2f2; border: 1px solid #fecaca; padding: 9px 12px; font-weight: 900; color: #991b1b; font-size: 11.5px; border-radius: 8px; margin: 14px 0; text-transform: uppercase; }
+            .table-box { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 11.5px; }
+            .table-box th, .table-box td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+            .table-box th { background: #f1f5f9; text-transform: uppercase; font-size: 10px; text-align: left; }
+            .sig-row { display: flex; justify-content: space-between; margin-top: 50px; }
+            .sig-line { border-top: 1px solid #475569; width: 200px; text-align: center; font-size: 9.5px; font-weight: bold; text-transform: uppercase; padding-top: 5px; }
+            @media print { body { padding: 0; } .sheet { border: 2px solid #000; } }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <div>
+              <div class="header">
+                <div>
+                  <div class="logo-title">Vidhya Security Force &amp; Housekeeping Services</div>
+                  <div style="font-size: 11px; font-weight: 900; color: #1e3a8a;">संरक्षण एवं सुरक्षा &bull; PSARA MP LICENSED</div>
+                  <div class="license">PSARA LIC: PSA/L/74/MP/2023/FEB/3/425 &bull; INDORE HQ</div>
+                </div>
+                <div style="text-align: right; font-size: 10px; font-weight: bold;">
+                  <div>DATE: ${new Date(timestamp).toLocaleDateString('en-IN')}</div>
+                  <div style="color: #b91c1c;">DOCKET: ${esc(visit.id)}</div>
+                </div>
+              </div>
+
+              <div class="client-card">
+                <span style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">To Organization:</span>
+                <div style="font-size: 14px; font-weight: 900; color: #0f172a; text-transform: uppercase;">${esc(company)}</div>
+                <div style="font-size: 11px; color: #475569; margin-top: 2px;">Attention: <strong>${esc(contact)}</strong> &bull; Contact: +91 ${esc(phone)}</div>
+              </div>
+
+              <div class="subject">
+                Subject: Post-Inspection Audit Confirmation &amp; Guard Requirement Acknowledgment
+              </div>
+
+              <p style="font-size: 11.5px; color: #334155; margin-bottom: 12px; text-align: justify;">
+                Dear Sir/Madam,<br><br>
+                Thank you for accommodating our inspection team on ${new Date(timestamp).toLocaleDateString('en-IN')}. Our certified representative has executed an on-site physical evaluation of your premises to analyze security coverage, visitor reception desks, and peripheral perimeter boundaries.
+              </p>
+
+              <table class="table-box">
+                <tr><th width="35%">Inspection Officer</th><td><strong>${esc(rep)}</strong></td></tr>
+                <tr><th>Discussion Verdict</th><td>${esc(outcome.replace(/_/g, ' '))}</td></tr>
+                <tr><th>Observations Recorded</th><td>${esc(visit.notes || 'Static guard manning & gate security')}</td></tr>
+                <tr><th>Next Agreed Action</th><td>${visit.nextFollowUp ? `Follow-up meeting scheduled on ${visit.nextFollowUp}` : 'Rate quotation delivery'}</td></tr>
+              </table>
+
+              <p style="font-size: 11.5px; color: #334155; margin-top: 14px;">
+                Our official Madhya Pradesh PSARA statutory quotation docket is prepared and will be shared with your procurement committee.
+              </p>
+
+              <div class="sig-row">
+                <div class="sig-line">Inspecting Officer<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">${esc(rep)}</span></div>
+                <div class="sig-line">For Vidhya Security Force<br><span style="font-size: 8px; color: #64748b; font-weight: normal;">Managing Director Anil Dhariwal</span></div>
+              </div>
+            </div>
+
+            <div style="text-align: center; font-size: 8.5px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 8px;">
+              HQ: 012 A Block, Treasure Town, Indore (M.P.) &bull; Emergency: 9826259292 &bull; contact@vidhyasecurityforce.in
+            </div>
+          </div>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
   };
 
   if (loading) {
@@ -97,7 +217,6 @@ const VisitDetails: React.FC = () => {
     );
   }
 
-  // Normalize camelCase vs snake_case fields safely
   const companyName = visit.companyName || visit.company_name || 'Commercial Establishment';
   const contactPerson = visit.contactPerson || visit.contact_person || 'Not Specified';
   const phoneNumber = visit.phoneNumber || visit.phone_number || '';
@@ -119,8 +238,8 @@ const VisitDetails: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16 px-1 sm:px-2 animate-in fade-in duration-200">
 
-      {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between gap-4">
+      {/* Top Navigation Bar with Quick Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <button
           onClick={() => navigate(-1)}
           className="inline-flex items-center text-xs font-bold text-slate-600 hover:text-red-700 uppercase tracking-wider transition cursor-pointer"
@@ -129,13 +248,39 @@ const VisitDetails: React.FC = () => {
           <span>Back to Logs</span>
         </button>
 
-        <button
-          onClick={() => window.print()}
-          className="inline-flex items-center px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-xs cursor-pointer"
-        >
-          <Printer size={14} className="mr-1.5 text-red-700" />
-          <span>Print Docket</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => navigate('/create-quotation')}
+            className="inline-flex items-center px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-xs cursor-pointer gap-1.5"
+          >
+            <FileSpreadsheet size={13} className="text-amber-300" />
+            <span>Generate Quote</span>
+          </button>
+
+          <button
+            onClick={handleShareWhatsApp}
+            className="inline-flex items-center px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-xs cursor-pointer gap-1.5"
+          >
+            <MessageCircle size={13} />
+            <span>WhatsApp Client</span>
+          </button>
+
+          <button
+            onClick={handlePrintPostVisitLetter}
+            className="inline-flex items-center px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-xs cursor-pointer gap-1.5"
+          >
+            <FileText size={13} className="text-red-700" />
+            <span>Visit Letter</span>
+          </button>
+
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold uppercase tracking-wider transition shadow-xs cursor-pointer gap-1.5"
+          >
+            <Printer size={13} className="text-slate-500" />
+            <span>Print Docket</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Docket Header Card */}
@@ -202,12 +347,11 @@ const VisitDetails: React.FC = () => {
         </div>
       </div>
 
-      {/* Grid: Context & Proof of Presence */}
+      {/* Grid: Profile & Evidence Proofs */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
-        {/* Left Column (5 Cols): Entity Profile & Observations */}
+        {/* Left Column (5 Cols): Entity Profile & Notes */}
         <div className="lg:col-span-5 space-y-6">
-
           <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
             <div className="flex items-center space-x-2 text-red-700 border-b border-slate-100 pb-3">
               <Building2 size={16} />
@@ -261,16 +405,13 @@ const VisitDetails: React.FC = () => {
               </p>
             </div>
           </div>
-
         </div>
 
-        {/* Right Column (7 Cols): Photo Evidences & GPS Geo-Lock */}
+        {/* Right Column (7 Cols): Photographs & GPS Map */}
         <div className="lg:col-span-7 space-y-6">
-
-          {/* Photographic Audit Proofs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-            {/* Board / Gate Photo */}
+            {/* Board Image */}
             <div className="bg-white p-4 rounded-3xl border border-slate-200/90 shadow-xs space-y-2.5">
               <div className="flex items-center justify-between px-1">
                 <span className="text-[10px] font-mono font-bold text-slate-700 uppercase tracking-wider">
@@ -296,7 +437,7 @@ const VisitDetails: React.FC = () => {
               </div>
             </div>
 
-            {/* Officer Selfie Verification */}
+            {/* Officer Selfie */}
             <div className="bg-white p-4 rounded-3xl border border-slate-200/90 shadow-xs space-y-2.5">
               <div className="flex items-center justify-between px-1">
                 <span className="text-[10px] font-mono font-bold text-slate-700 uppercase tracking-wider">
@@ -321,10 +462,9 @@ const VisitDetails: React.FC = () => {
                 )}
               </div>
             </div>
-
           </div>
 
-          {/* GPS Coordinates Deployment Banner */}
+          {/* GPS Satellite Lock Card */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center space-x-2 text-red-700">
@@ -372,7 +512,6 @@ const VisitDetails: React.FC = () => {
               )}
             </div>
           </div>
-
         </div>
 
       </div>

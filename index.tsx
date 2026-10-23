@@ -1,3 +1,7 @@
+// 1. Initialize Sentry error monitoring before any React rendering occurs
+import { initMonitoring } from './services/monitoring';
+initMonitoring();
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -19,3 +23,4 @@ root.render(
 if ('serviceWorker' in navigator) {
   registerSW({ immediate: true });
 }
+

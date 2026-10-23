@@ -71,7 +71,11 @@ const FollowUps: React.FC = () => {
     fetchFollowUps();
   }, [user]);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Local date (not UTC) so "due today" is right in India before 5:30 AM
+  const todayStr = (() => {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  })();
 
   const displayedFollowUps = useMemo(() => {
     let filtered = followUps.filter((item) => {

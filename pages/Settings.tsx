@@ -425,7 +425,7 @@ export const Settings: React.FC = () => {
               <div className="space-y-3">
                 <div>
                   <label className="text-[9.5px] font-mono font-bold text-slate-600 uppercase block mb-1">
-                    Overtime 4-Hour Ratio (%)[cite: 5]
+                    Overtime 4-Hour Ratio (%)
                   </label>
                   <input
                     type="number"
@@ -437,7 +437,7 @@ export const Settings: React.FC = () => {
 
                 <div>
                   <label className="text-[9.5px] font-mono font-bold text-slate-600 uppercase block mb-1">
-                    Reliever Weekly Rest (%)[cite: 5]
+                    Reliever Weekly Rest (%)
                   </label>
                   <input
                     type="number"
@@ -451,7 +451,7 @@ export const Settings: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[9.5px] font-mono font-bold text-slate-600 uppercase block mb-1">
-                      EPF (%)[cite: 5]
+                      EPF (%)
                     </label>
                     <input
                       type="number"
@@ -463,7 +463,7 @@ export const Settings: React.FC = () => {
 
                   <div>
                     <label className="text-[9.5px] font-mono font-bold text-slate-600 uppercase block mb-1">
-                      ESIC (%)[cite: 5]
+                      ESIC (%)
                     </label>
                     <input
                       type="number"
@@ -478,7 +478,7 @@ export const Settings: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[9.5px] font-mono font-bold text-slate-600 uppercase block mb-1">
-                      LWF (₹)[cite: 5]
+                      LWF (₹)
                     </label>
                     <input
                       type="number"
@@ -490,7 +490,7 @@ export const Settings: React.FC = () => {
 
                   <div>
                     <label className="text-[9.5px] font-mono font-bold text-slate-600 uppercase block mb-1">
-                      Uniform Kit (₹)[cite: 5]
+                      Uniform Kit (₹)
                     </label>
                     <input
                       type="number"
@@ -503,7 +503,7 @@ export const Settings: React.FC = () => {
 
                 <div>
                   <label className="text-[9.5px] font-mono font-bold text-slate-600 uppercase block mb-1">
-                    Default Agency Service Margin (%)[cite: 5]
+                    Default Agency Service Margin (%)
                   </label>
                   <input
                     type="number"
@@ -546,7 +546,7 @@ export const Settings: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[9px] font-mono font-bold text-slate-500 uppercase block mb-1">
-                        12-Hour Basic (₹)[cite: 5]
+                        12-Hour Basic (₹)
                       </label>
                       <input
                         type="number"
@@ -557,7 +557,7 @@ export const Settings: React.FC = () => {
                     </div>
                     <div>
                       <label className="text-[9px] font-mono font-bold text-slate-500 uppercase block mb-1">
-                        08-Hour Basic (₹)[cite: 5]
+                        08-Hour Basic (₹)
                       </label>
                       <input
                         type="number"
@@ -629,7 +629,7 @@ export const Settings: React.FC = () => {
 
                 {/* Housekeeping & Sanitation */}
                 <div className="p-3.5 bg-[#FBFBF9] border border-slate-200/90 rounded-2xl space-y-2">
-                  <span className="text-xs font-black uppercase text-slate-900 block">Housekeeping &amp; Sanitation[cite: 5]</span>
+                  <span className="text-xs font-black uppercase text-slate-900 block">Housekeeping &amp; Sanitation</span>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[9px] font-mono font-bold text-slate-500 uppercase block mb-1">
@@ -752,7 +752,7 @@ export const Settings: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                      Direct Command Phone <span className="text-red-600">*</span>[cite: 5]
+                      Direct Command Phone <span className="text-red-600">*</span>
                     </label>
                     <div className="relative">
                       <Phone className="absolute left-3.5 top-3 text-amber-700" size={15} />
@@ -768,7 +768,7 @@ export const Settings: React.FC = () => {
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                      Operations Email Address[cite: 5]
+                      Operations Email Address
                     </label>
                     <div className="relative">
                       <Mail className="absolute left-3.5 top-3 text-amber-700" size={15} />
@@ -785,7 +785,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    Registered Headquarters Address[cite: 5]
+                    Registered Headquarters Address
                   </label>
                   <div className="relative">
                     <MapPin className="absolute left-3.5 top-3 text-amber-700" size={15} />
@@ -805,14 +805,14 @@ export const Settings: React.FC = () => {
               <div className="flex items-center space-x-2 text-amber-800 border-b border-slate-100 pb-3">
                 <FileCheck2 size={18} />
                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                  Statutory Registrations &amp; Government Accreditations[cite: 5]
+                  Statutory Registrations &amp; Government Accreditations
                 </h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    1. PSARA License Number[cite: 5]
+                    1. PSARA License Number
                   </label>
                   <input
                     value={formData.psaraLicense}
@@ -824,7 +824,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    2. Labour Commissioner Registration No[cite: 5]
+                    2. Labour Commissioner Registration No
                   </label>
                   <input
                     value={formData.labourRegNo}
@@ -836,7 +836,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    3. Employee Provident Fund (EPF Code)[cite: 5]
+                    3. Employee Provident Fund (EPF Code)
                   </label>
                   <input
                     value={formData.epfCode}
@@ -848,7 +848,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    4. ESIC Corporation Registration[cite: 5]
+                    4. ESIC Corporation Registration
                   </label>
                   <input
                     value={formData.esicRegNo}
@@ -860,7 +860,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    5. GST Registration Number (GSTIN)[cite: 5]
+                    5. GST Registration Number (GSTIN)
                   </label>
                   <input
                     value={formData.gstNumber}
@@ -872,7 +872,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    6. Professional Tax (P.T.) License[cite: 5]
+                    6. Professional Tax (P.T.) License
                   </label>
                   <input
                     value={formData.ptLicenseNo}
@@ -884,7 +884,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    7. Income Tax PAN Card[cite: 5]
+                    7. Income Tax PAN Card
                   </label>
                   <input
                     value={formData.panNumber}
@@ -896,7 +896,7 @@ export const Settings: React.FC = () => {
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
-                    8. Managing Director / Signatory Name[cite: 5]
+                    8. Managing Director / Signatory Name
                   </label>
                   <div className="relative">
                     <UserCheck className="absolute left-3.5 top-3 text-amber-700" size={15} />

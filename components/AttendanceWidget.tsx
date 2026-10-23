@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { canvasToCompressedDataUrl } from '../utils/imageCompress';
 import {
   LogIn,
   LogOut,
@@ -164,7 +165,7 @@ export const AttendanceWidget: React.FC<AttendanceWidgetProps> = ({
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.drawImage(video, (video.videoWidth - size) / 2, (video.videoHeight - size) / 2, size, size, 0, 0, size, size);
-      const selfieDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const selfieDataUrl = canvasToCompressedDataUrl(canvas, { maxSize: 640, quality: 0.7 });
 
       stopCamera();
 

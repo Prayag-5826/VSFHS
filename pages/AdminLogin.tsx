@@ -9,7 +9,7 @@ const AdminLogin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { login, settings } = useAuth();
+  const { login, logout, settings } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -20,6 +20,12 @@ const AdminLogin: React.FC = () => {
     try {
       const result = await login(userId, password);
       if (result.success) {
+        // This terminal is for administrators only; officers use the Officer Portal.
+        if (result.user && result.user.role !== 'ADMIN') {
+          logout({ redirect: false });
+          setError('This terminal is restricted to administrators. Please use the Officer Portal.');
+          return;
+        }
         navigate('/');
       } else {
         setError(result.message || 'Administrative privilege verification failed.');

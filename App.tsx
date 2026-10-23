@@ -1,96 +1,127 @@
-import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { SplashScreen } from '@capacitor/splash-screen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './components/ToastContext';
-import { Layout } from './components/Layout';
+import { AppShell } from './components/AppShell';
 import { AnimatedSplash } from './components/AnimatedSplash';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { Role } from './types';
 
-// Authentication Pages
+// Authentication pages
 import Login from './pages/Login';
-import AdminLogin from './pages/AdminLogin';
+const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 
-// Operational Pages
-import Dashboard from './pages/Dashboard';
-import AddVisit from './pages/AddVisit';
-import VisitsList from './pages/VisitsList';
-import VisitDetails from './pages/VisitDetails';
-import Reports from './pages/Reports';
-import AddUser from './pages/AddUser';
-import Settings from './pages/Settings';
-import ManageUsers from './pages/ManageUsers';
-import FollowUps from './pages/FollowUps';
-import { CreateQuotation } from './pages/CreateQuotation';
+// Operational pages are loaded on demand, so the first screen opens faster on a phone.
+// (Login stays eager because it is the first thing most people see.)
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AddVisit = lazy(() => import('./pages/AddVisit'));
+const VisitsList = lazy(() => import('./pages/VisitsList'));
+const VisitDetails = lazy(() => import('./pages/VisitDetails'));
+const Reports = lazy(() => import('./pages/Reports'));
+const AddUser = lazy(() => import('./pages/AddUser'));
+const Settings = lazy(() => import('./pages/Settings'));
+const ManageUsers = lazy(() => import('./pages/ManageUsers'));
+const FollowUps = lazy(() => import('./pages/FollowUps'));
+const DocumentsDesk = lazy(() => import('./pages/DocumentsDesk'));
+const CreateQuotation = lazy(() => import('./pages/CreateQuotation').then((m) => ({ default: m.CreateQuotation })));
 
-// Native Service Integrations
-import { syncOfflineDataToServer } from './services/offlineSync';
+// Site Inspection & Photographic Audit Pages
+const SiteAudit = lazy(() => import('./pages/SiteAuditPage'));
+const InspectionGallery = lazy(() => import('./pages/InspectionGalleryPage'));
+
+// Native services
+import { startOfflineSync } from './services/offlineSync';
 import { requestAppPermissions } from './services/permissions';
 
-// Route Guard: Ensures officer is logged in
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const PageLoader: React.FC = () => (
+  <div className="flex items-center justify-center min-h-[40vh]">
+    <div className="w-8 h-8 border-4 border-red-700/20 border-t-red-700 rounded-full animate-spin" />
+  </div>
+);
+
+/**
+ * One layout route for every signed-in page. The sidebar stays mounted while the
+ * officer moves between pages (before, each route created its own copy).
+ */
+const ProtectedLayout: React.FC = () => {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <Layout>{children}</Layout>;
+  return (
+    <AppShell>
+      <Suspense fallback={<PageLoader />}>
+        <Outlet />
+      </Suspense>
+    </AppShell>
+  );
 };
 
-// Admin Route Guard: Restricts critical account/settings management to ADMIN role
-const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, user } = useAuth();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (user?.role !== 'ADMIN') return <Navigate to="/" replace />;
-  return <Layout>{children}</Layout>;
+/** Restricts a group of routes to certain roles. Mirrors the links shown in the sidebar. */
+const RoleGate: React.FC<{ roles: Role[] }> = ({ roles }) => {
+  const { user } = useAuth();
+  if (!roles.includes(user?.role as Role)) return <Navigate to="/" replace />;
+  return <Outlet />;
 };
 
 const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
-    // 1. Instantly dismiss native Android OS splash screen window
+    // 1. Hide the native Android splash window
     SplashScreen.hide().catch(() => {});
 
-    // 2. Request native Android runtime permissions (Camera, GPS, Notifications)
+    // 2. Ask for native permissions (camera, GPS, notifications)
     requestAppPermissions();
 
-    // 3. Initiate offline visit sync matrix with Supabase
-    syncOfflineDataToServer();
-    window.addEventListener('online', syncOfflineDataToServer);
-
-    return () => {
-      window.removeEventListener('online', syncOfflineDataToServer);
-    };
+    // 3. Upload visits saved while offline (one listener, one run at a time)
+    return startOfflineSync();
   }, []);
 
   return (
     <AuthProvider>
       <ToastProvider>
         <Router>
-          {/* High-End Animated Splash Screen (Pure White Canvas Theme) */}
-          {showSplash && (
-            <AnimatedSplash onFinish={() => setShowSplash(false)} />
-          )}
+          {showSplash && <AnimatedSplash onFinish={() => setShowSplash(false)} />}
 
-          <Routes>
-            {/* Public Access Portals */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/vsfhs-master-portal" element={<AdminLogin />} />
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                {/* Public portals */}
+                <Route path="/login" element={<Login />} />
+                <Route path="/vsfhs-master-portal" element={<AdminLogin />} />
 
-            {/* Field Operations (Officers & Admin) */}
-            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/add-visit" element={<ProtectedRoute><AddVisit /></ProtectedRoute>} />
-            <Route path="/visits" element={<ProtectedRoute><VisitsList /></ProtectedRoute>} />
-            <Route path="/visit/:id" element={<ProtectedRoute><VisitDetails /></ProtectedRoute>} />
-            <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
-            <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-            <Route path="/create-quotation" element={<ProtectedRoute><CreateQuotation /></ProtectedRoute>} />
+                {/* Everything below needs a signed-in user */}
+                <Route element={<ProtectedLayout />}>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/add-visit" element={<AddVisit />} />
+                  <Route path="/visits" element={<VisitsList />} />
+                  <Route path="/visit/:id" element={<VisitDetails />} />
+                  <Route path="/follow-ups" element={<FollowUps />} />
+                  <Route path="/create-quotation" element={<CreateQuotation />} />
 
-            {/* Administrative Level Privilege Controls */}
-            <Route path="/add-user" element={<AdminRoute><AddUser /></AdminRoute>} />
-            <Route path="/manage-users" element={<AdminRoute><ManageUsers /></AdminRoute>} />
-            <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
+                  {/* Accessible to ALL authenticated field staff & admin */}
+                  <Route path="/site-audit" element={<SiteAudit />} />
 
-            {/* Wildcard Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+                  {/* Admin and senior executives only */}
+                  <Route element={<RoleGate roles={[Role.ADMIN, Role.SR_FIELD_EXECUTIVE]} />}>
+                    <Route path="/add-user" element={<AddUser />} />
+                    <Route path="/inspection-gallery" element={<InspectionGallery />} />
+                  </Route>
+
+                  {/* Admin only */}
+                  <Route element={<RoleGate roles={[Role.ADMIN]} />}>
+                    <Route path="/manage-users" element={<ManageUsers />} />
+                    <Route path="/reports" element={<Reports />} />
+                    <Route path="/documents" element={<DocumentsDesk />} />
+                    <Route path="/settings" element={<Settings />} />
+                  </Route>
+                </Route>
+
+                {/* Fallback */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
         </Router>
       </ToastProvider>
     </AuthProvider>
