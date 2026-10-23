@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { canvasToCompressedDataUrl } from '../utils/imageCompress';
+import { canvasToCompressedDataUrl } from '../services/imageCompress';
 import {
   LogIn,
   LogOut,
